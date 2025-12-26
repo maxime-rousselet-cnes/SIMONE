@@ -1,62 +1,73 @@
-import numpy
-from scipy.integrate import RK45
-from sympy import Expr, Matrix, MutableDenseMatrix, evaluate, lambdify, symbols
+from typing import Callable
 
-from src import SimulationParameters, symbolic_propagator
+from scipy.integrate import RK45
+from sympy import Expr, MutableDenseMatrix, evaluate, lambdify, symbols
+
+from src import (
+    OrbitalParameters,
+    SimulationParameters,
+    orbital_parameters_to_cartesian_state,
+    symbolic_propagator,
+)
 
 
 def propagate_ephemeris(
+    # TODO: Generate all Force Parameter instances and call their get_terminal_parameters.
+    # TODO: Add Force Parameter symbols to parameter_expressions.
     simulation_parameters: SimulationParameters,
-    parameters: dict[str, Expr],
+    parameter_expressions: dict[str, Expr],
     terminal_parameter_values: dict[str, float],
-):
+    initial_conditions: OrbitalParameters,
+) -> tuple[
+    list[float],
+    list[list[float]],
+    Callable[[MutableDenseMatrix, dict[str, Expr]], MutableDenseMatrix],
+]:
     """
     Integration of motion.
     """
 
-    state_vector = Matrix([[symbol] for symbol in symbols("x y z v_x v_y v_z")])
-    t = symbols("t")
-
     with evaluate(False):
 
-        ephemeris_flow_expression: MutableDenseMatrix = symbolic_propagator(
+        generalized_symbolic_propagator: MutableDenseMatrix = symbolic_propagator(
             simulation_parameters=simulation_parameters
         )
 
-    lambda_propagator = lambdify(
-        args=list(parameter for parameter in state_parameters.flat()) + [t],
-        expr=ephemeris_flow_expression.xreplace(
-            rule={
-                parameters[parameter_name]: value
-                for parameter_name, value in terminal_parameter_values.items()
-            }
-            | {"delta_t": delta_t}
-        ),
-    )
-
     rk45_integrator = RK45(
-        fun=lambda_propagator,
+        fun=lambdify(
+            args=list(symbols("x y z v_x v_y v_z")) + [symbols("t")],
+            expr=generalized_symbolic_propagator.xreplace(
+                rule={
+                    parameter_expressions[parameter_name]: value
+                    for parameter_name, value in terminal_parameter_values.items()
+                }
+            ),
+        ),
         t0=0.0,
-        y0=y0,
-        t_bound=integration_parameters["arc_duration"],
-        max_step=integration_parameters["max_step"],
-        rtol=[EPSILON] * 3 + [INF] * (3 + len(dr_dgamma_0)),
-        atol=[integration_parameters["dR_tol_max"]] * 3 + [INF] * (3 + len(dr_dgamma_0)),
+        y0=orbital_parameters_to_cartesian_state(
+            orbital_parameters=initial_conditions,
+            gravitational_parameter=parameter_expressions["gravitational_parameter"],
+        ),
+        t_bound=simulation_parameters.arc_length,
+        max_step=simulation_parameters.time_step,
+        # TODO: Vector atol/rtol.
         vectorized=True,
-        first_step=EPSILON,
     )
     t = []
     y = []
 
     # Integrates for the arc duration or until the altitude limit is reached.
     while rk45_integrator.status == "running":
+
         t.append(rk45_integrator.t)
         y.append(rk45_integrator.y)
-        if (integration_parameters["altitude_limit"] >= 0) and (
-            norm(R=y[-1]) < parameters["R_T"] + integration_parameters["altitude_limit"]
-        ):
+
+        # TODO: Manage surface crash.
+        if False:
+
             break
+
         rk45_integrator.step()
 
-    # Times and integrated vector containing position, speed and eventually dr_dgamma and dr_dot_dgamma.
+    # Times and integrated state vector at all times.
     return t, y

@@ -23,6 +23,7 @@ class ForceParameters:
     """
 
     pass
+    # TODO: generic function get_terminal_parameters -> dict[str, float]
 
 
 class SimulationParameters:
@@ -35,38 +36,45 @@ class SimulationParameters:
     arc_length: float
 
 
-class SingleParameter:
-    expression: Expr
-    value: float
+class TimeDependentParameter(ForceParameters):
 
-
-class TimeDependentParameter:
-
-    arc_time_sampling: list[SingleParameter]
-    values: list[SingleParameter]
-    symbol: str
-    order: int
+    time_sampling_expressions: list[Expr]
+    parameter_value_expressions: list[Expr]
+    interpolation_order: int
+    time_sampling_values: list[datetime]
+    parameter_values: list[float]
 
     def __init__(
         self,
         symbol: str,
         arc_start_datetime: datetime,
-        time_sampling: list[datetime],
-        values: list[float],
-        order: int,
+        datetime_sampling_values: list[datetime],
+        parameter_values: list[float],
+        interpolation_order: int,
     ) -> None:
         """ """
 
-        self.symbol = symbol
-        self.arc_time_sampling = [
-            SingleParameter(
-                expression=Symbol(f"t^{symbol}_{i_timestamp}"),
-                value=datetime_differences(t_1=arc_start_datetime, t_2=timestamp_datetime),
-            )
-            for i_timestamp, timestamp_datetime in enumerate(time_sampling)
+        self.time_sampling_expressions = [
+            Symbol(f"t^{symbol}_{i_timestamp}")
+            for i_timestamp, _ in enumerate(datetime_sampling_values)
         ]
-        self.values = [
-            SingleParameter(expression=Symbol(f"{symbol}_{i_timestamp}"), value=value)
-            for i_timestamp, value in enumerate(values)
+        self.parameter_value_expressions = [
+            Symbol(f"{symbol}_{i_timestamp}") for i_timestamp, _ in enumerate(parameter_values)
         ]
-        self.order = order
+        self.interpolation_order = interpolation_order
+        self.time_sampling_values = [
+            datetime_differences(t_1=arc_start_datetime, t_2=datetime_sample)
+            for datetime_sample in datetime_sampling_values
+        ]
+        self.parameter_values = parameter_values
+
+    def get_terminal_parameters(self) -> dict[str, float]:
+        """ """
+
+        return {
+            symbol.name: value
+            for symbol, value in zip(self.time_sampling_expressions, self.time_sampling_values)
+        } | {
+            symbol.name: value
+            for symbol, value in zip(self.parameter_value_expressions, self.parameter_values)
+        }  # TODO: find name.

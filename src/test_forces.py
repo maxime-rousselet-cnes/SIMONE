@@ -1,17 +1,14 @@
-from datetime import datetime
-from inspect import getmembers, isfunction
-from sys import modules
-
-from sympy import Expr, Matrix, MutableDenseMatrix
+from sympy import Expr, MutableDenseMatrix
 
 from utils import norm, position
 
-from .parameters import TimeDependentParameter
+from .parameters import ForceParameters, TimeDependentParameter
+from .utils import piecewise_lagrange
 
 
-class ParameterizedTestForceParameters:
+class ParameterizedTestForceParameters(ForceParameters):
 
-    dummy_parameter: float
+    dummy_parameter: Expr
 
 
 def parameterized_test_force(
@@ -31,33 +28,29 @@ def parameterized_test_force(
     )
 
 
-class ParameterizedTimeTestForceParameters:
+class TimeTestForceParameters:
 
     time_dependent_parameter: TimeDependentParameter
-
-
-from .utils import lagrange_polynomial_interpolation
 
 
 def parameterized_time_test_force(
     state_vector: MutableDenseMatrix,
     parameters: dict[str, Expr],
-    parameterized_time_test_force_parameters: ParameterizedTimeTestForceParameters,
+    time_test_force_parameters: TimeTestForceParameters,
     time: Expr,
 ) -> MutableDenseMatrix:
     """
-    Virtual force to test the simulation's architecture. Constant and radial. Has a time-dependent scale parameter.
+    Virtual force to test the simulation's architecture. Constant and radial. Has a time-dependent
+    scale parameter.
     """
 
     return (
-        parameter_test_force_parameters.dummy_parameter
+        piecewise_lagrange(
+            t=time,
+            t_syms=time_test_force_parameters.time_dependent_parameter.time_sampling_expressions,
+            y_syms=time_test_force_parameters.time_dependent_parameter.parameter_value_expressions,
+            order=time_test_force_parameters.time_dependent_parameter.interpolation_order,
+        )
         * (parameters["Earth_radius"] / norm(vector=position(state_vector=state_vector))) ** 2
         * position(state_vector=state_vector)
     )
-
-
-test_forces = {
-    name: force
-    for name, force in getmembers(modules[__name__], isfunction)
-    if force.__module__ == __name__
-}

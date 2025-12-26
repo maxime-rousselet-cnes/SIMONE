@@ -2,15 +2,21 @@
 Regroups all forces defined in the different force modules.
 """
 
+from inspect import getmembers, isfunction
+from sys import modules
 from typing import Callable
 
 from sympy import Expr, MutableDenseMatrix
 
-from .gravitational_forces import gravitational_forces
 from .parameters import SimulationParameters
-from .test_forces import test_forces
 
-all_forces = gravitational_forces | test_forces
+all_forces = {
+    name: force
+    for name, force in getmembers(
+        modules[__name__], isfunction
+    )  # TODO: loop on modules in same folder.
+    if force.__module__ == __name__
+}
 
 
 def symbolic_propagator(
