@@ -22,18 +22,50 @@ class ForceParameters:
     Abstract class from which every force-specific has to inherit.
     """
 
-    pass
-    # TODO: generic function get_terminal_parameters -> dict[str, float]
+    def get_terminal_parameters(self) -> dict[str, float]:
+        """
+        Returns terminal (numeric) parameters required by the force.
+
+        Default implementation returns an empty dict. Subclasses should override to provide a
+        mapping of symbol names to their numeric values.
+        """
+
+        return {}
+
+    def get_parameter_expressions(self) -> dict[str, Expr]:
+        """
+        Returns parameter expressions required by the force.
+
+        Default implementation returns an empty dict. Subclasses should override to provide a
+        mapping of symbol names to their symbolic expressions.
+        """
+
+        return {}
 
 
 class SimulationParameters:
 
     time_step: float
-    maximum_degree: int
     satellite: str
     simulated_forces: dict[str, Optional[ForceParameters]]
-    initial_datetime: datetime
+    arc_start_datetime: datetime
     arc_length: float
+
+    def __init__(
+        self,
+        time_step: float,
+        satellite: str,
+        simulated_forces: dict[str, Optional[ForceParameters]],
+        arc_start_datetime: datetime,
+        arc_length: float,
+    ) -> None:
+        """ """
+
+        self.time_step = time_step
+        self.satellite = satellite
+        self.simulated_forces = simulated_forces
+        self.arc_start_datetime = arc_start_datetime
+        self.arc_length = arc_length
 
 
 class TimeDependentParameter(ForceParameters):
@@ -50,11 +82,11 @@ class TimeDependentParameter(ForceParameters):
         arc_start_datetime: datetime,
         datetime_sampling_values: list[datetime],
         parameter_values: list[float],
-        interpolation_order: int,
+        interpolation_order: int = 4,
     ) -> None:
         """ """
 
-        self.time_sampling_expressions = [
+        self.time_sampling_expressions: list[Expr] = [
             Symbol(f"t^{symbol}_{i_timestamp}")
             for i_timestamp, _ in enumerate(datetime_sampling_values)
         ]
@@ -72,9 +104,16 @@ class TimeDependentParameter(ForceParameters):
         """ """
 
         return {
-            symbol.name: value
+            str(symbol): value
             for symbol, value in zip(self.time_sampling_expressions, self.time_sampling_values)
         } | {
-            symbol.name: value
+            str(symbol): value
             for symbol, value in zip(self.parameter_value_expressions, self.parameter_values)
-        }  # TODO: find name.
+        }
+
+    def get_parameter_expressions(self) -> dict[str, Expr]:
+        """ """
+
+        return {str(symbol): symbol for symbol in self.time_sampling_expressions} | {
+            str(symbol): symbol for symbol in self.parameter_value_expressions
+        }

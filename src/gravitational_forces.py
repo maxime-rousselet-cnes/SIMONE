@@ -1,6 +1,6 @@
 from sympy import Expr, Matrix, MutableDenseMatrix
 
-from utils import norm, position
+from .utils import norm, position
 
 
 def central_body_attraction(
