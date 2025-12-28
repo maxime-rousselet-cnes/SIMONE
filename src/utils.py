@@ -107,3 +107,20 @@ def piecewise_lagrange(t: Expr, t_syms: list[Expr], y_syms: list[Expr], order: i
         pieces.append((poly, condition))
 
     return Piecewise(*pieces)
+
+
+def evaluate_terminal_parameters(
+    expression: Expr,
+    parameter_expressions: dict[str, Expr],
+    terminal_parameter_values: dict[str, float],
+) -> Expr:
+    """
+    Substitudes terminal parameter expression into their values.
+    """
+
+    return expression.xreplace(
+        rule={
+            parameter_expressions[parameter_name]: value
+            for parameter_name, value in terminal_parameter_values.items()
+        }
+    )

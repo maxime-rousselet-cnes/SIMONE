@@ -3,6 +3,7 @@ Defines General parameter-like classes. Force-specific parameter classes yet to 
 said force.
 """
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
@@ -43,65 +44,67 @@ class ForceParameters:
         return {}
 
 
+@dataclass
 class SimulationParameters:
+    """
+    All parameters required for a forward simulation.
+    """
 
     time_step: float
-    satellite: str
     simulated_forces: dict[str, Optional[ForceParameters]]
     arc_start_datetime: datetime
     arc_length: float
 
-    def __init__(
-        self,
-        time_step: float,
-        satellite: str,
-        simulated_forces: dict[str, Optional[ForceParameters]],
-        arc_start_datetime: datetime,
-        arc_length: float,
-    ) -> None:
-        """ """
 
-        self.time_step = time_step
-        self.satellite = satellite
-        self.simulated_forces = simulated_forces
-        self.arc_start_datetime = arc_start_datetime
-        self.arc_length = arc_length
+@dataclass
+class ParameterSampling:
+    """
+    Sampling definition for a time-dependent parameter.
+    """
+
+    datetime_sampling_values: list[datetime]
+    parameter_values: list[float]
 
 
 class TimeDependentParameter(ForceParameters):
+    """
+    General description of a time-dependent parameter to be interpolated by when defining the force
+    that uses it.
+    """
 
     time_sampling_expressions: list[Expr]
     parameter_value_expressions: list[Expr]
     interpolation_order: int
-    time_sampling_values: list[datetime]
-    parameter_values: list[float]
+    parameter_sampling: ParameterSampling
 
     def __init__(
         self,
         symbol: str,
         arc_start_datetime: datetime,
-        datetime_sampling_values: list[datetime],
-        parameter_values: list[float],
+        parameter_sampling: ParameterSampling,
         interpolation_order: int = 4,
     ) -> None:
-        """ """
 
         self.time_sampling_expressions: list[Expr] = [
             Symbol(f"t^{symbol}_{i_timestamp}")
-            for i_timestamp, _ in enumerate(datetime_sampling_values)
+            for i_timestamp, _ in enumerate(parameter_sampling.datetime_sampling_values)
         ]
         self.parameter_value_expressions = [
-            Symbol(f"{symbol}_{i_timestamp}") for i_timestamp, _ in enumerate(parameter_values)
+            Symbol(f"{symbol}_{i_timestamp}")
+            for i_timestamp, _ in enumerate(parameter_sampling.parameter_values)
         ]
         self.interpolation_order = interpolation_order
         self.time_sampling_values = [
             datetime_differences(t_1=arc_start_datetime, t_2=datetime_sample)
-            for datetime_sample in datetime_sampling_values
+            for datetime_sample in parameter_sampling.datetime_sampling_values
         ]
-        self.parameter_values = parameter_values
+        self.parameter_values = parameter_sampling.parameter_values
 
     def get_terminal_parameters(self) -> dict[str, float]:
-        """ """
+        """
+        Makes sure to consider the time-dependent parameter values as well as its time sampling
+        values.
+        """
 
         return {
             str(symbol): value
@@ -112,7 +115,10 @@ class TimeDependentParameter(ForceParameters):
         }
 
     def get_parameter_expressions(self) -> dict[str, Expr]:
-        """ """
+        """
+        Makes sure to consider the time-dependent parameter symbols as well as its time sampling
+        symbols.
+        """
 
         return {str(symbol): symbol for symbol in self.time_sampling_expressions} | {
             str(symbol): symbol for symbol in self.parameter_value_expressions

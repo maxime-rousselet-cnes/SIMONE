@@ -1,3 +1,7 @@
+"""
+Describes all Newtonian accelerations based on gravity.
+"""
+
 from sympy import Expr, Matrix, MutableDenseMatrix
 
 from .utils import norm, position

@@ -1,10 +1,7 @@
-from .ephemeris import OrbitalParameters, orbital_parameters_to_cartesian_state
-from .forces import symbolic_propagator
-from .parameters import SimulationParameters
+"""
+Functions to call from outside the src package: to be called from main scripts.
+"""
 
-[
-    SimulationParameters,
-    symbolic_propagator,
-    OrbitalParameters,
-    orbital_parameters_to_cartesian_state,
-]
+from .forward_simulation import test_forward_orbit
+
+functions = [test_forward_orbit]

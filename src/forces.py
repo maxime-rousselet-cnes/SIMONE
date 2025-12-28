@@ -44,14 +44,14 @@ def symbolic_propagator(
     return Matrix.vstack(
         speed(state_vector=state_vector),
         sum(
-            [
+            (
                 (
                     all_forces[force](state_vector, parameters, force_parameters)
                     if force_parameters
                     else all_forces[force](state_vector, parameters)
                 )
                 for force, force_parameters in simulation_parameters.simulated_forces.items()
-            ],
+            ),
             start=MutableDenseMatrix.zeros(rows=3, cols=1),
         ),
     )
