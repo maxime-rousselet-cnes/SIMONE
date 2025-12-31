@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-from sympy import Expr, Symbol
+from sympy import Expr, Matrix, MutableDenseMatrix, Symbol
+
+from .utils import piecewise_lagrange
 
 
 def datetime_differences(t_1: datetime, t_2: datetime) -> float:
@@ -18,7 +20,7 @@ def datetime_differences(t_1: datetime, t_2: datetime) -> float:
     return (t_2 - t_1).total_seconds()
 
 
-class ForceParameters:
+class Parameters:
     """
     Abstract class from which every force-specific has to inherit.
     """
@@ -45,15 +47,94 @@ class ForceParameters:
 
 
 @dataclass
+class ArcParameters:
+    """
+    Time characteristics of an orbit arc.
+    """
+
+    time_step: float
+    arc_start_datetime: datetime
+    arc_length: float
+    lagrange_interpolation_order: int
+    arc_id: str
+
+    def generate_lagrange_kernels(self) -> MutableDenseMatrix:
+        """
+        For minimizing complexity use.
+        """
+
+        return Matrix(
+            [
+                [
+                    piecewise_lagrange(
+                        t=Symbol("t"),
+                        t_syms=[
+                            Symbol(f"t_{i}") for i in range(2 * self.lagrange_interpolation_order)
+                        ],
+                        # k-th component.
+                        y_syms=[
+                            Symbol(f"theta^{j}_{i}")
+                            for i in range(2 * self.lagrange_interpolation_order)
+                        ],
+                        order=self.lagrange_interpolation_order,
+                    )
+                ]
+                for j in range(6)
+            ]
+        )
+
+
 class SimulationParameters:
     """
     All parameters required for a forward simulation.
     """
 
-    time_step: float
-    simulated_forces: dict[str, Optional[ForceParameters]]
-    arc_start_datetime: datetime
-    arc_length: float
+    arc_parameters: ArcParameters
+    simulated_forces: dict[str, Optional[Parameters]]
+    lagrange_kernels: MutableDenseMatrix
+    parameter_expressions: dict[str, Expr]
+    terminal_parameter_values: dict[str, float]
+
+    def __init__(
+        self,
+        arc_parameters: ArcParameters,
+        simulated_forces: dict[str, Optional[Parameters]],
+        parameter_expressions: dict[str, Expr],
+        terminal_parameter_values: dict[str, float],
+    ) -> None:
+
+        self.arc_parameters = arc_parameters
+        self.simulated_forces = simulated_forces
+        self.lagrange_kernels = self.arc_parameters.generate_lagrange_kernels()
+        self.parameter_expressions = parameter_expressions
+        self.terminal_parameter_values = terminal_parameter_values
+
+        for _, force_parameters in simulated_forces.items():
+
+            if force_parameters:
+
+                self.update_expressions(
+                    new_expressions=force_parameters.get_parameter_expressions()
+                )
+                self.update_terminal_parameter_values(
+                    new_expressions=force_parameters.get_terminal_parameters()
+                )
+
+    def update_expressions(self, new_expressions: dict[str, Expr]) -> None:
+        """
+        Updates the dictionary of parameter expressions. Need to update the dictionary of terminal
+        parameter values too.
+        """
+
+        self.parameter_expressions.update(new_expressions)
+
+    def update_terminal_parameter_values(self, new_expressions: dict[str, Expr]) -> None:
+        """
+        Updates the dictionary of terminal parameter values. Need to update the dictionary of
+        parameter expressions.
+        """
+
+        self.terminal_parameter_values.update(new_expressions)
 
 
 @dataclass
@@ -66,7 +147,7 @@ class ParameterSampling:
     parameter_values: list[float]
 
 
-class TimeDependentParameter(ForceParameters):
+class TimeDependentParameter(Parameters):
     """
     General description of a time-dependent parameter to be interpolated by when defining the force
     that uses it.

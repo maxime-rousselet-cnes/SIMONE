@@ -57,6 +57,14 @@ def norm(vector: MutableDenseMatrix) -> MutableDenseMatrix:
     return sum(component**2 for component in vector.flat()) ** 0.5
 
 
+def distance(vector_1: MutableDenseMatrix, vector_2: MutableDenseMatrix) -> Expr:
+    """
+    Euclidian distance.
+    """
+
+    return norm(vector=position(state_vector=vector_2 - vector_1))
+
+
 def lagrange_polynomial_interpolation(t: Expr, t_points: list[Expr], y_points: list[Expr]) -> Expr:
     """
     Builds the k-th order Lagrange polynomial symbolically.

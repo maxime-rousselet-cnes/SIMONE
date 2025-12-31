@@ -8,7 +8,7 @@ from inspect import getmembers, isfunction
 from sys import modules
 from typing import Callable
 
-from sympy import Expr, Matrix, MutableDenseMatrix
+from sympy import Matrix, MutableDenseMatrix
 
 from .parameters import SimulationParameters
 from .utils import speed
@@ -33,12 +33,11 @@ all_forces.pop("__annotate__")
 
 def symbolic_propagator(
     state_vector: MutableDenseMatrix,
-    parameters: dict[str, Expr],
     simulation_parameters: SimulationParameters,
 ) -> MutableDenseMatrix:
     """
-    Builds a simulation-specific symbolic propagator. Yet to be evaluated for parameters before
-    being integrated on state and time.
+    Builds a simulation-specific symbolic propagator. Yet to be evaluated for parameter expressions
+    before being integrated on state and time.
     """
 
     return Matrix.vstack(
@@ -46,9 +45,13 @@ def symbolic_propagator(
         sum(
             (
                 (
-                    all_forces[force](state_vector, parameters, force_parameters)
+                    all_forces[force](
+                        state_vector, simulation_parameters.parameter_expressions, force_parameters
+                    )
                     if force_parameters
-                    else all_forces[force](state_vector, parameters)
+                    else all_forces[force](
+                        state_vector, simulation_parameters.parameter_expressions
+                    )
                 )
                 for force, force_parameters in simulation_parameters.simulated_forces.items()
             ),
