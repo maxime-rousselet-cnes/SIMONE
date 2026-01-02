@@ -2,21 +2,21 @@
 Describes a forward simulation of an arc for a satellite
 """
 
-from numpy import array, ndarray
+from numpy import array
 from numpy.linalg import norm
 from scipy.integrate import RK45
-from sympy import Matrix, MutableDenseMatrix, evaluate, flatten, lambdify, symbols
+from sympy import MutableDenseMatrix, evaluate, flatten, lambdify, symbols
 
+from .dynamics import symbolic_propagator
 from .ephemeris import OrbitalParameters
-from .forces import symbolic_propagator
 from .parameters import SimulationParameters
 from .test_constants import TEST_ARC_LENGTH, TEST_SIMULATION_PARAMETERS, TEST_TIME_STEP
-from .utils import evaluate_terminal_parameters
+from .utils import STATE_VECTOR_LINE, STATE_VECTOR_MATRIX, evaluate_terminal_parameters
 
 
 def propagate_ephemeris(
     simulation_parameters: SimulationParameters,
-    initial_conditions: OrbitalParameters,
+    initial_conditions: OrbitalParameters = OrbitalParameters(),
 ) -> tuple[
     list[float],
     list[list[float]],
@@ -26,19 +26,17 @@ def propagate_ephemeris(
     Integration of motion.
     """
 
-    state_vector_line = list(symbols("x y z v_x v_y v_z"))
-
     with evaluate(False):
 
         generalized_symbolic_propagator: MutableDenseMatrix = symbolic_propagator(
-            state_vector=Matrix(state_vector_line).T,
+            state_vector=STATE_VECTOR_MATRIX,
             simulation_parameters=simulation_parameters,
         )
 
     rk45_integrator = RK45(
         # The numerical function to integrate takes line as input: time and 6 for cartesian state.
         fun=lambdify(
-            args=[symbols("t")] + [state_vector_line],
+            args=[symbols("t")] + [STATE_VECTOR_LINE],
             expr=flatten(
                 evaluate_terminal_parameters(
                     expression=generalized_symbolic_propagator,
@@ -90,17 +88,14 @@ def propagate_ephemeris(
 
 def test_forward_simulation(
     simulation_parameters: SimulationParameters = TEST_SIMULATION_PARAMETERS,
-) -> tuple[ndarray[float], ndarray[float]]:
+) -> None:
     """
     Checks if the forward simulation of orbit determination runs for dummy forces.
     """
 
     t, y, _ = propagate_ephemeris(
         simulation_parameters=simulation_parameters,
-        initial_conditions=OrbitalParameters(),
     )
 
     assert len(t) >= TEST_ARC_LENGTH // TEST_TIME_STEP
     assert len(y) == len(t)
-
-    return t, y

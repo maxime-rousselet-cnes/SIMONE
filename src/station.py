@@ -140,72 +140,6 @@ class Station(Parameters):
             ]
         }
 
-    def station_state_vector(self, parameter_expressions: dict[str, Expr]) -> MutableDenseMatrix:
-        """
-        Returns the symbolic 6D Cartesian state vector (position + velocity)
-        of the station in the inertial frame.
-        """
-
-        latitude = Symbol(f"{self.name}_latitude")
-        longitude = Symbol(f"{self.name}_longitude")
-        altitude = Symbol(f"{self.name}_altitude")
-
-        # Nominal ECEF position assuming spherical Earth.
-        r_ecef = MutableDenseMatrix(
-            [
-                (parameter_expressions["Earth_radius"] + altitude) * cos(latitude) * cos(longitude),
-                (parameter_expressions["Earth_radius"] + altitude) * cos(latitude) * sin(longitude),
-                (parameter_expressions["Earth_radius"] + altitude) * sin(latitude),
-            ]
-        )
-        enu_offset = MutableDenseMatrix(
-            [
-                parameter_expressions[f"{self.name}_eastward_bias"]
-                + parameter_expressions[f"{self.name}_eastward_speed"] * parameter_expressions["t"],
-                parameter_expressions[f"{self.name}_northward_bias"]
-                + parameter_expressions[f"{self.name}_northward_speed"]
-                * parameter_expressions["t"],
-                parameter_expressions[f"{self.name}_vertical_bias"]
-                + parameter_expressions[f"{self.name}_vertical_speed"] * parameter_expressions["t"],
-            ]
-        )
-        enu_velocity = MutableDenseMatrix(
-            [
-                parameter_expressions[f"{self.name}_eastward_speed"],
-                parameter_expressions[f"{self.name}_northward_speed"],
-                parameter_expressions[f"{self.name}_vertical_speed"],
-            ]
-        )
-        enu_to_ecef = rotation_matrix(
-            angle=longitude, unit_vector=MutableDenseMatrix([0, 0, 1])
-        ) @ rotation_matrix(angle=latitude, unit_vector=MutableDenseMatrix([0, 1, 0]))
-        r_ecef_total = r_ecef + enu_to_ecef @ enu_offset
-        v_ecef_local = Matrix(enu_to_ecef @ enu_velocity)
-        r_eci = Matrix(
-            rotation_matrix(
-                angle=parameter_expressions["arc_start_Earth_rotation_angle"]
-                + parameter_expressions["Earth_rotation_angular_speed"] * parameter_expressions["t"]
-            )
-            @ r_ecef_total
-        )
-
-        # Inertial velocity: omega * r + rotated local velocity.
-
-        return MutableDenseMatrix.vstack(
-            Matrix(r_eci),
-            Matrix(
-                rotation_matrix(
-                    angle=parameter_expressions["arc_start_Earth_rotation_angle"]
-                    + parameter_expressions["Earth_rotation_angular_speed"]
-                    * parameter_expressions["t"]
-                )
-                @ v_ecef_local
-                + MutableDenseMatrix(
-                    [0, 0, parameter_expressions["Earth_rotation_angular_speed"]]
-                ).cross(r_eci)
-            ),
-        )
-
     def visibility(
         self, state_vector: ndarray[float], terminal_parameter_values: dict[str, float]
     ) -> bool:
@@ -232,3 +166,86 @@ class Station(Parameters):
         )
 
         return numpy.degrees(elevation) >= self.minimal_elevation_angle
+
+    def apply_to_station(self, expression: Expr) -> Expr:
+        """
+        Particularizes a station-dependent expression to a particular instance.
+        """
+
+        # Collect symbols to replace
+        mapping: dict[Symbol, Symbol] = {}
+        s: Symbol
+
+        for s in expression.free_symbols:
+
+            if s.name.startswith("station_"):
+
+                new_name = s.name.replace("station_", f"{self.name}_", 1)
+
+                mapping[s] = Symbol(new_name)
+
+        return expression.xreplace(mapping)
+
+
+def station_state_vector(parameter_expressions: dict[str, Expr]) -> MutableDenseMatrix:
+    """
+    Returns the symbolic 6D Cartesian state vector (position + velocity) of a station in the
+    inertial frame.
+    """
+
+    latitude = Symbol("station_latitude")
+    longitude = Symbol("station_longitude")
+    altitude = Symbol("station_altitude")
+
+    # Nominal ECEF position assuming spherical Earth.
+    r_ecef = MutableDenseMatrix(
+        [
+            (parameter_expressions["Earth_radius"] + altitude) * cos(latitude) * cos(longitude),
+            (parameter_expressions["Earth_radius"] + altitude) * cos(latitude) * sin(longitude),
+            (parameter_expressions["Earth_radius"] + altitude) * sin(latitude),
+        ]
+    )
+    enu_offset = MutableDenseMatrix(
+        [
+            Symbol("station_eastward_bias")
+            + Symbol("station_eastward_speed") * parameter_expressions["t"],
+            Symbol("station_northward_bias")
+            + Symbol("station_northward_speed") * parameter_expressions["t"],
+            Symbol("station_vertical_bias")
+            + Symbol("station_vertical_speed") * parameter_expressions["t"],
+        ]
+    )
+    enu_velocity = MutableDenseMatrix(
+        [
+            Symbol("station_eastward_speed"),
+            Symbol("station_northward_speed"),
+            Symbol("station_vertical_speed"),
+        ]
+    )
+    enu_to_ecef = rotation_matrix(
+        angle=longitude, unit_vector=MutableDenseMatrix([0, 0, 1])
+    ) @ rotation_matrix(angle=latitude, unit_vector=MutableDenseMatrix([0, 1, 0]))
+    r_ecef_total = r_ecef + enu_to_ecef @ enu_offset
+    v_ecef_local = Matrix(enu_to_ecef @ enu_velocity)
+    r_eci = Matrix(
+        rotation_matrix(
+            angle=parameter_expressions["arc_start_Earth_rotation_angle"]
+            + parameter_expressions["Earth_rotation_angular_speed"] * parameter_expressions["t"]
+        )
+        @ r_ecef_total
+    )
+
+    # Inertial velocity: omega * r + rotated local velocity.
+    return MutableDenseMatrix.vstack(
+        Matrix(r_eci),
+        Matrix(
+            rotation_matrix(
+                angle=parameter_expressions["arc_start_Earth_rotation_angle"]
+                + parameter_expressions["Earth_rotation_angular_speed"] * parameter_expressions["t"]
+            )
+            @ v_ecef_local
+            + MutableDenseMatrix(
+                [0, 0, parameter_expressions["Earth_rotation_angular_speed"]]
+            ).cross(r_eci)
+        ),
+    )

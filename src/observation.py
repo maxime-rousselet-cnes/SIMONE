@@ -4,16 +4,17 @@ Describes observation types for a general observation framework.
 
 import random
 from pathlib import Path
+from shutil import rmtree
 
 from numpy import array, ndarray
 from numpy.random import normal
-from pandas import DataFrame
+from pandas import DataFrame, read_csv
 from sympy import Expr, Symbol
 
-from .forward_simulation import test_forward_simulation
+from .forward_simulation import propagate_ephemeris
 from .interpolation import apply_lagrange_kernel
 from .parameters import SimulationParameters
-from .station import Station
+from .station import Station, station_state_vector
 from .test_constants import TEST_OUTPUT_PATH, TEST_SIMULATION_PARAMETERS, TEST_STATIONS
 from .utils import distance
 
@@ -31,14 +32,15 @@ def generate_measurements(
 
     station_theoretical_measurements: dict[str, list[float]] = {}
     station_observations: dict[str, Expr] = {}
+    general_station_state_vector = station_state_vector(
+        parameter_expressions=simulation_parameters.parameter_expressions
+    )
 
     for station_id, station in stations.items():
 
         # Symbolic expression to differentiate later to produce dQ/dgamma and nabla Q.
         station_observations[station_id] = distance(
-            vector_1=station.station_state_vector(
-                parameter_expressions=simulation_parameters.parameter_expressions
-            ),
+            vector_1=station.apply_to_station(expression=general_station_state_vector),
             vector_2=simulation_parameters.lagrange_kernels,
         )
 
@@ -128,7 +130,6 @@ def simulate_measurements(
     observation_timestamps = get_visibilities(
         t=t, y=y, stations=stations, simulation_parameters=simulation_parameters
     )
-
     station_theoretical_measurements, _ = generate_measurements(
         t=t,
         y=y,
@@ -136,6 +137,26 @@ def simulate_measurements(
         observation_timestamps=observation_timestamps,
         simulation_parameters=simulation_parameters,
     )
+    save_measurements(
+        stations=stations,
+        observation_timestamps=observation_timestamps,
+        station_theoretical_measurements=station_theoretical_measurements,
+        simulation_parameters=simulation_parameters,
+        output_path=output_path,
+    )
+
+
+def save_measurements(
+    stations: dict[str, Station],
+    observation_timestamps: dict[str, list[float]],
+    station_theoretical_measurements: dict[str, list[float]],
+    simulation_parameters: SimulationParameters,
+    output_path: Path,
+) -> None:
+    """
+    Writes a line per measurement in a (.CSV) file.
+    """
+
     dataframe = DataFrame(data={"station_id": [], "timestamp": [], "value": []})
 
     for station_id, station in stations.items():
@@ -158,9 +179,26 @@ def simulate_measurements(
     save_path = output_path.joinpath(simulation_parameters.arc_parameters.arc_id)
     save_path.mkdir(exist_ok=True, parents=True)
     dataframe.to_csv(
-        save_path.joinpath("measurements.csv"),
+        path_or_buf=save_path.joinpath("measurements.csv"),
         index=False,
     )
+
+
+def get_measurements(
+    measurements_path: Path = TEST_OUTPUT_PATH,
+) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
+    """
+    Gets measurement timestamps and values per station from (.CSV) file.
+    """
+
+    dataframe = read_csv(
+        filepath_or_buffer=output_path.joinpath(
+            simulation_parameters.arc_parameters.arc_id
+        ).joinpath("measurements.csv")
+    )
+    # TODO.
+
+    return observation_timestamps, measurement_values
 
 
 def test_observations(
@@ -170,7 +208,14 @@ def test_observations(
     Verifies if the measurements are correctly created in a forward simulation.
     """
 
-    t, y = test_forward_simulation(simulation_parameters=simulation_parameters)
+    t, y, _ = propagate_ephemeris(
+        simulation_parameters=simulation_parameters,
+    )
+
+    if TEST_OUTPUT_PATH.exists():
+
+        rmtree(TEST_OUTPUT_PATH)
+
     simulate_measurements(
         t=t, y=y, stations=TEST_STATIONS, simulation_parameters=simulation_parameters
     )
