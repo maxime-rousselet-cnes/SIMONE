@@ -26,10 +26,10 @@ def speed(state_vector: MutableDenseMatrix) -> MutableDenseMatrix:
 
 
 def rotation_matrix(
-    angle: Expr, unit_vector: MutableDenseMatrix = Matrix([[0.0], [0.0], [1.0]])
+    angle: Expr, unit_vector: MutableDenseMatrix = Matrix([[0], [0], [1]])
 ) -> MutableDenseMatrix:
     """
-    General expression of a rotation matrix on any axis using Rodrigues' rotation formula. Assumes
+    General expression of a rotation matrix on any axis using Rodrigues rotation formula. Assumes
     the given axis direction is a unit vector.
     """
 
@@ -39,9 +39,9 @@ def rotation_matrix(
 
     cross_product_matrix = Matrix(
         [
-            [0.0, -unit_vector[2], unit_vector[1]],
-            [unit_vector[2], 0.0, -unit_vector[0]],
-            [-unit_vector[1], unit_vector[0], 0.0],
+            [0, -unit_vector[2], unit_vector[1]],
+            [unit_vector[2], 0, -unit_vector[0]],
+            [-unit_vector[1], unit_vector[0], 0],
         ]
     )
 

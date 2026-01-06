@@ -41,7 +41,7 @@ class OrbitalParameters:
         ) @ (
             rotation_matrix(
                 angle=pi / 180 * self.inclination,
-                unit_vector=MutableDenseMatrix([[1.0], [0.0], [0.0]]),
+                unit_vector=MutableDenseMatrix([[1], [0], [0]]),
             )
             @ rotation_matrix(angle=pi / 180 * self.argument_of_periapsis)
         )
@@ -51,7 +51,7 @@ class OrbitalParameters:
             [
                 [radius * cos(pi / 180 * self.true_anomaly)],
                 [radius * sin(pi / 180 * self.true_anomaly)],
-                [0.0],
+                [0],
             ]
         )
         velocity_proxy = sqrt(gravitational_parameter / impact_parameter)
@@ -59,7 +59,7 @@ class OrbitalParameters:
             [
                 [-velocity_proxy * sin(pi / 180 * self.true_anomaly)],
                 [velocity_proxy * (self.eccentricity + cos(pi / 180 * self.true_anomaly))],
-                [0.0],
+                [0],
             ]
         )
         return Matrix.vstack(

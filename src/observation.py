@@ -161,6 +161,7 @@ def save_measurements(
 
     for station_id, station in stations.items():
 
+        # TODO 0: check why no measurements in file.
         dataframe.add(
             other={
                 "station_id": len(observation_timestamps[station_id]) * [station_id],
@@ -185,18 +186,18 @@ def save_measurements(
 
 
 def get_measurements(
-    measurements_path: Path = TEST_OUTPUT_PATH,
+    simulation_parameters: SimulationParameters, measurements_path: Path = TEST_OUTPUT_PATH
 ) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
     """
     Gets measurement timestamps and values per station from (.CSV) file.
     """
 
     dataframe = read_csv(
-        filepath_or_buffer=output_path.joinpath(
+        filepath_or_buffer=measurements_path.joinpath(
             simulation_parameters.arc_parameters.arc_id
         ).joinpath("measurements.csv")
     )
-    # TODO.
+    # TODO 1: write this function
 
     return observation_timestamps, measurement_values
 
