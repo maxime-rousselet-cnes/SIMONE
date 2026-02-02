@@ -5,9 +5,9 @@ said force.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
-from sympy import Expr, Matrix, MutableDenseMatrix, Symbol
+from numpy import ndarray
+from sympy import Expr, Matrix, MutableDenseMatrix, Piecewise, Symbol, srepr
 
 from .utils import piecewise_lagrange
 
@@ -23,6 +23,8 @@ def datetime_differences(t_1: datetime, t_2: datetime) -> float:
 class Parameters:
     """
     Abstract class from which every force-specific has to inherit.
+    A force-specific parameters class has to redefine properly these 3 methods and a constructor
+    ensuring self-consistence.
     """
 
     def get_terminal_parameters(self) -> dict[str, float]:
@@ -45,6 +47,13 @@ class Parameters:
 
         return {}
 
+    def to_serializable(self) -> dict[str, float | str]:
+        """
+        To save in (.JSON) files.
+        """
+
+        return {}
+
 
 @dataclass
 class ArcParameters:
@@ -58,7 +67,11 @@ class ArcParameters:
     lagrange_interpolation_order: int
     arc_id: str
 
-    def generate_lagrange_kernels(self) -> MutableDenseMatrix:
+    # Defines whether the arc is computed for initial simulated measurement generation purposes or
+    # not.
+    is_initial: bool
+
+    def generate_lagrange_kernels(self, t: Expr) -> MutableDenseMatrix:
         """
         For minimizing complexity use.
         """
@@ -67,13 +80,13 @@ class ArcParameters:
             [
                 [
                     piecewise_lagrange(
-                        t=Symbol("t"),
+                        t=t,
                         t_syms=[
-                            Symbol(f"t_{i}") for i in range(2 * self.lagrange_interpolation_order)
+                            Symbol(rf"t_{i}") for i in range(2 * self.lagrange_interpolation_order)
                         ],
                         # k-th component.
                         y_syms=[
-                            Symbol(f"theta^{j}_{i}")
+                            Symbol(rf"\theta^{j}_{i}")
                             for i in range(2 * self.lagrange_interpolation_order)
                         ],
                         order=self.lagrange_interpolation_order,
@@ -84,102 +97,30 @@ class ArcParameters:
         )
 
 
-class SimulationParameters:
-    """
-    All parameters required for a forward simulation.
-    """
-
-    arc_parameters: ArcParameters
-    simulated_forces: dict[str, Optional[Parameters]]
-    lagrange_kernels: MutableDenseMatrix
-    parameter_expressions: dict[str, Expr]
-    terminal_parameter_values: dict[str, float]
-
-    def __init__(
-        self,
-        arc_parameters: ArcParameters,
-        simulated_forces: dict[str, Optional[Parameters]],
-        parameter_expressions: dict[str, Expr],
-        terminal_parameter_values: dict[str, float],
-    ) -> None:
-
-        self.arc_parameters = arc_parameters
-        self.simulated_forces = simulated_forces
-        self.lagrange_kernels = self.arc_parameters.generate_lagrange_kernels()
-        self.parameter_expressions = parameter_expressions
-        self.terminal_parameter_values = terminal_parameter_values
-
-        for _, force_parameters in simulated_forces.items():
-
-            if force_parameters:
-
-                self.update_expressions(
-                    new_expressions=force_parameters.get_parameter_expressions()
-                )
-                self.update_terminal_parameter_values(
-                    new_expressions=force_parameters.get_terminal_parameters()
-                )
-
-    def update_expressions(self, new_expressions: dict[str, Expr]) -> None:
-        """
-        Updates the dictionary of parameter expressions. Need to update the dictionary of terminal
-        parameter values too.
-        """
-
-        self.parameter_expressions.update(new_expressions)
-
-    def update_terminal_parameter_values(self, new_expressions: dict[str, Expr]) -> None:
-        """
-        Updates the dictionary of terminal parameter values. Need to update the dictionary of
-        parameter expressions.
-        """
-
-        self.terminal_parameter_values.update(new_expressions)
-
-
 @dataclass
-class ParameterSampling:
-    """
-    Sampling definition for a time-dependent parameter.
-    """
-
-    datetime_sampling_values: list[datetime]
-    parameter_values: list[float]
-
-
 class TimeDependentParameter(Parameters):
     """
     General description of a time-dependent parameter to be interpolated by when defining the force
     that uses it.
     """
 
-    time_sampling_expressions: list[Expr]
-    parameter_value_expressions: list[Expr]
     interpolation_order: int
-    parameter_sampling: ParameterSampling
+    time_sampling_expressions: list[Expr]
+    parameter_expressions: list[Expr]
+    time_sampling_values: list[float]
+    parameter_values: list[float]
 
-    def __init__(
-        self,
-        symbol: str,
-        arc_start_datetime: datetime,
-        parameter_sampling: ParameterSampling,
-        interpolation_order: int = 4,
-    ) -> None:
+    def piecewise_lagrange(self, t: Expr) -> Piecewise:
+        """
+        Applies Lagrange interpolation of wanted order.
+        """
 
-        self.time_sampling_expressions: list[Expr] = [
-            Symbol(f"t^{symbol}_{i_timestamp}")
-            for i_timestamp, _ in enumerate(parameter_sampling.datetime_sampling_values)
-        ]
-        self.parameter_value_expressions = [
-            Symbol(f"{symbol}_{i_timestamp}")
-            for i_timestamp, _ in enumerate(parameter_sampling.parameter_values)
-        ]
-        self.interpolation_order = interpolation_order
-        self.time_sampling_values = [
-            datetime_differences(t_1=arc_start_datetime, t_2=datetime_sample)
-            for datetime_sample in parameter_sampling.datetime_sampling_values
-        ]
-        self.parameter_values = parameter_sampling.parameter_values
+        return piecewise_lagrange(
+            t=t,
+            t_syms=self.time_sampling_expressions,
+            y_syms=self.parameter_expressions,
+            order=self.interpolation_order,
+        )
 
     def get_terminal_parameters(self) -> dict[str, float]:
         """
@@ -192,7 +133,7 @@ class TimeDependentParameter(Parameters):
             for symbol, value in zip(self.time_sampling_expressions, self.time_sampling_values)
         } | {
             str(symbol): value
-            for symbol, value in zip(self.parameter_value_expressions, self.parameter_values)
+            for symbol, value in zip(self.parameter_expressions, self.parameter_values)
         }
 
     def get_parameter_expressions(self) -> dict[str, Expr]:
@@ -202,5 +143,54 @@ class TimeDependentParameter(Parameters):
         """
 
         return {str(symbol): symbol for symbol in self.time_sampling_expressions} | {
-            str(symbol): symbol for symbol in self.parameter_value_expressions
+            str(symbol): symbol for symbol in self.parameter_expressions
         }
+
+    def to_serializable(self) -> dict[str, float | str]:
+        """
+        Gets needed information to build back the instance from the constructor.
+        """
+
+        return {
+            "interpolation_order": self.interpolation_order,
+            "time_sampling_expressions": [
+                srepr(expression) for expression in self.time_sampling_expressions
+            ],
+            "parameter_expressions": [
+                srepr(expression) for expression in self.parameter_expressions
+            ],
+            "time_sampling_values": list(self.time_sampling_values),
+            "parameter_values": list(self.parameter_values),
+        }
+
+
+def generate_time_dependent_parameter(
+    symbol: str,
+    arc_start_datetime: datetime,
+    datetime_sampling_values: list[datetime],
+    parameter_values: list[float] | ndarray[float],
+    interpolation_order: int = 4,
+) -> TimeDependentParameter:
+    """
+    Formally builds an instance of TimeDependentParameter. Different of the base constructor, which
+    assumes already correctly defined attributes.
+    """
+
+    assert len(parameter_values) == len(datetime_sampling_values)
+
+    return TimeDependentParameter(
+        interpolation_order=interpolation_order,
+        time_sampling_expressions=[
+            Symbol(rf"t^{symbol}" + "{" + rf"{i_timestamp}" + "}")
+            for i_timestamp, _ in enumerate(datetime_sampling_values)
+        ],
+        parameter_expressions=[
+            Symbol(rf"{symbol}_" + "{" + rf"{i_timestamp}" + "}")
+            for i_timestamp, _ in enumerate(datetime_sampling_values)
+        ],
+        time_sampling_values=[
+            datetime_differences(t_1=arc_start_datetime, t_2=datetime_sample)
+            for datetime_sample in datetime_sampling_values
+        ],
+        parameter_values=list(parameter_values),
+    )

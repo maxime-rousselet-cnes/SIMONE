@@ -2,9 +2,17 @@
 Independent utility functions.
 """
 
+from json import JSONEncoder, dump, load
+from json.decoder import JSONDecodeError
+from pathlib import Path
+from time import sleep
+from typing import Any, Optional
+
+from numpy import ndarray
+from pydantic import BaseModel
 from sympy import Expr, Identity, Matrix, MutableDenseMatrix, Piecewise, cos, sin, symbols
 
-STATE_VECTOR_LINE = list(symbols("x y z v_x v_y v_z"))
+STATE_VECTOR_LINE = list(symbols(r"x y z v_x v_y v_z"))
 STATE_VECTOR_MATRIX: MutableDenseMatrix = Matrix(STATE_VECTOR_LINE).T
 
 
@@ -135,3 +143,69 @@ def evaluate_terminal_parameters(
             for parameter_name, value in terminal_parameter_values.items()
         }
     )
+
+
+class JSONSerialize(JSONEncoder):
+    """
+    Handmade JSON encoder that correctly encodes special structures.
+    """
+
+    def default(self, o):
+
+        if isinstance(o, ndarray):
+
+            return o.tolist()
+
+        if isinstance(o, BaseModel):
+
+            return o.__dict__
+
+        return JSONEncoder().default(o)
+
+
+def save_base_model(obj: Any, name: str, path: Path):
+    """
+    Saves a JSON serializable type.
+    """
+
+    # Eventually considers subpath.
+    while len(name.split("/")) > 1:
+
+        path = path.joinpath(name.split("/")[0])
+        name = "".join(name.split("/")[1:])
+
+    # May create the directory.
+    path.mkdir(exist_ok=True, parents=True)
+
+    # Saves the object.
+    with open(path.joinpath(name + ".json"), "w", encoding="utf-8") as file:
+
+        dump(obj, fp=file, cls=JSONSerialize, indent=4)
+
+
+def load_base_model(
+    name: str,
+    path: Path,
+    base_model_type: Optional[Any] = None,
+) -> Any:
+    """
+    Loads a JSON serializable type.
+    """
+
+    filepath = path.joinpath(name + ("" if ".json" in name else ".json"))
+
+    try:
+
+        with open(filepath, "r", encoding="utf-8") as file:
+
+            loaded_content = load(fp=file)
+
+    except JSONDecodeError:
+
+        # Waits to avoid concurrent reading/writing.
+        sleep(1e-3)
+
+        # Then retries.
+        return load_base_model(name=name, path=path, base_model_type=base_model_type)
+
+    return loaded_content if not base_model_type else base_model_type(**loaded_content)

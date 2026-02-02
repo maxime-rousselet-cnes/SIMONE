@@ -5,12 +5,11 @@ Describes a forward simulation of an arc for a satellite
 from numpy import array
 from numpy.linalg import norm
 from scipy.integrate import RK45
-from sympy import MutableDenseMatrix, evaluate, flatten, lambdify, symbols
+from sympy import MutableDenseMatrix, evaluate, flatten, lambdify
 
 from .dynamics import symbolic_propagator
 from .ephemeris import OrbitalParameters
-from .parameters import SimulationParameters
-from .test_constants import TEST_ARC_LENGTH, TEST_SIMULATION_PARAMETERS, TEST_TIME_STEP
+from .simulation_parameters import SimulationParameters
 from .utils import STATE_VECTOR_LINE, STATE_VECTOR_MATRIX, evaluate_terminal_parameters
 
 
@@ -36,7 +35,7 @@ def propagate_ephemeris(
     rk45_integrator = RK45(
         # The numerical function to integrate takes line as input: time and 6 for cartesian state.
         fun=lambdify(
-            args=[symbols("t")] + [STATE_VECTOR_LINE],
+            args=[simulation_parameters.parameter_expressions[r"t"]] + [STATE_VECTOR_LINE],
             expr=flatten(
                 evaluate_terminal_parameters(
                     expression=generalized_symbolic_propagator,
@@ -51,7 +50,7 @@ def propagate_ephemeris(
             evaluate_terminal_parameters(
                 expression=initial_conditions.to_cartesian_state(
                     gravitational_parameter=simulation_parameters.parameter_expressions[
-                        "gravitational_parameter"
+                        r"\mu_{gravitational\ parameter}"
                     ],
                 ),
                 parameter_expressions=simulation_parameters.parameter_expressions,
@@ -71,7 +70,7 @@ def propagate_ephemeris(
         y.append(rk45_integrator.y)
 
         # Manages surface crash.
-        if norm(y[-1][:3]) <= simulation_parameters.terminal_parameter_values["Earth_radius"]:
+        if norm(y[-1][:3]) <= simulation_parameters.terminal_parameter_values[r"R_{Earth\ radius}"]:
 
             break
 
@@ -84,18 +83,3 @@ def propagate_ephemeris(
         # To be differentiated with respect to invertible parameters.
         generalized_symbolic_propagator,
     )
-
-
-def test_forward_simulation(
-    simulation_parameters: SimulationParameters = TEST_SIMULATION_PARAMETERS,
-) -> None:
-    """
-    Checks if the forward simulation of orbit determination runs for dummy forces.
-    """
-
-    t, y, _ = propagate_ephemeris(
-        simulation_parameters=simulation_parameters,
-    )
-
-    assert len(t) >= TEST_ARC_LENGTH // TEST_TIME_STEP
-    assert len(y) == len(t)

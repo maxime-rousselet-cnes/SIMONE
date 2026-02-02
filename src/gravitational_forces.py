@@ -15,7 +15,7 @@ def central_body_attraction(
     """
 
     return (
-        -parameter_expressions["gravitational_parameter"]
+        -parameter_expressions[r"\mu_{gravitational\ parameter}"]
         / norm(vector=position(state_vector=state_vector)) ** 3
         * Matrix(position(state_vector=state_vector))
     )

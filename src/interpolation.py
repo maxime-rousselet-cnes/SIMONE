@@ -5,7 +5,7 @@ Independent utility functions.
 from numpy import ndarray
 from sympy import Expr, Symbol
 
-from .parameters import SimulationParameters
+from .simulation_parameters import SimulationParameters
 from .utils import evaluate_terminal_parameters
 
 
@@ -26,7 +26,7 @@ def apply_lagrange_kernel(
         terminal_parameter_values=simulation_parameters.terminal_parameter_values,
     ).xreplace(
         rule={
-            Symbol(f"t_{i}"): t_i
+            Symbol(rf"t_{i}"): t_i
             for i, t_i in enumerate(
                 t[
                     time_index
@@ -36,7 +36,7 @@ def apply_lagrange_kernel(
             )
         }
         | {
-            Symbol(f"theta^{j}_{i}"): y_i
+            Symbol(rf"\theta^{j}_{i}"): y_i
             for j in range(6)
             for i, y_i in enumerate(
                 y[

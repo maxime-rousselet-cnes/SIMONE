@@ -1,30 +1,11 @@
 """
 Integrates the partial derivatives.
+TODO: Manage variation equation quadrature. Start by initial conditions.
+TODO: Save normal equations.
+TODO: Solves normal equations.
+TODO: Test function that retrieves initial conditions.
+TODO: Test function that retrieves dummy parameter.
+TODO: Cumulates.
+TODO: Test function that cumulates the dummy parameter over 2 arcs.
+TODO: Plot correlations of parameters.
 """
-
-from .forward_simulation import propagate_ephemeris
-from .parameters import SimulationParameters
-from .test_constants import TEST_SIMULATION_PARAMETERS
-
-
-def test_quadrature(
-    simulation_parameters: SimulationParameters = TEST_SIMULATION_PARAMETERS,
-) -> None:
-    """
-    Verifies if the measurements are correctly created in a forward simulation.
-    """
-
-    t, y, generalized_symbolic_propagator = propagate_ephemeris(
-        simulation_parameters=simulation_parameters,
-    )
-
-    # TODO 2.
-    """
-    station_theoretical_measurements, _ = generate_measurements(
-        t=t,
-        y=y,
-        stations=TEST_STATIONS,
-        observation_timestamps=observation_timestamps,
-        simulation_parameters=simulation_parameters,
-    )
-    """

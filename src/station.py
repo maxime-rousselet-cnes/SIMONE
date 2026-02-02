@@ -3,16 +3,22 @@ Describes a station object and its parameters.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
+from random import uniform
+from typing import Optional
 
 import numpy
-from numpy import ndarray
+from numpy import arcsin, array, asin, dot, ndarray
+from numpy.linalg import norm
+from pandas import read_csv
 from sympy import Expr, Matrix, MutableDenseMatrix, Symbol, cos, sin
 
+from .base_constants import EARTH_GROUND_MASK, EARTH_RADIUS, TEST_OUTPUT_PATH, degrees, radians
+from .dynamics import ecef_to_eci
 from .parameters import Parameters
 from .utils import rotation_matrix
 
 
-@dataclass
 class StationPosition:
     """
     Describes the reference position of a ground station.
@@ -21,6 +27,64 @@ class StationPosition:
     latitude: float
     longitude: float
     altitude: float
+
+    def __init__(
+        self,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
+        altitude: float = 0.0,
+        earth_ground_mask: Optional[ndarray[bool]] = EARTH_GROUND_MASK,
+    ) -> None:
+
+        if latitude and longitude:
+
+            self.latitude = latitude
+            self.longitude = longitude
+            self.altitude = altitude
+
+        # Creates random station coordinates uniformly on ground.
+        else:
+
+            self.altitude = 0.0
+            condition = False
+
+            while not condition:
+
+                self.generate_random_station_coordinates()
+                condition = self.is_on_ground(earth_ground_mask=earth_ground_mask)
+
+    def generate_random_station_coordinates(self) -> None:
+        """
+        Uniform on the sphere.
+        """
+
+        self.latitude = degrees(asin(uniform(a=-1, b=1)))
+        self.longitude = uniform(-180, 180)
+
+    def is_on_ground(self, earth_ground_mask: Optional[ndarray[bool]] = EARTH_GROUND_MASK) -> bool:
+        """
+        Verifies if the station is on the ground or not (ocean/ice cap).
+        """
+
+        return (
+            True
+            if earth_ground_mask is None
+            else earth_ground_mask[
+                int((self.latitude + 90) / 180 * len(earth_ground_mask)),
+                int((self.longitude + 180) / 360 * len(earth_ground_mask[0])),
+            ]
+        )
+
+    def cartesian_ecef(self) -> tuple[float, float, float]:
+        """
+        Gets x, y and z coordinates of the station in the Earth-centered reference frame.
+        """
+
+        return (
+            (EARTH_RADIUS * cos(radians(self.latitude)) * cos(radians(self.longitude))),
+            (EARTH_RADIUS * cos(radians(self.latitude)) * sin(radians(self.longitude))),
+            EARTH_RADIUS * sin(radians(self.latitude)),
+        )
 
 
 @dataclass
@@ -74,7 +138,7 @@ class Station(Parameters):
         name: str,
         station_position: StationPosition,
         station_parameters: StationParameters = StationParameters(),
-        minimal_elevation_angle: float = 60.0,
+        minimal_elevation_angle: float = 30.0,
     ) -> None:
 
         self.name = name
@@ -90,19 +154,19 @@ class Station(Parameters):
         """
 
         return {
-            self.name + "_" + parameter_name: parameter_value
+            parameter_name.replace("station", self.name): parameter_value
             for parameter_name, parameter_value in zip(
                 [
-                    "latitude",
-                    "longitude",
-                    "altitude",
-                    "eastward_bias",
-                    "northward_bias",
-                    "vertical_bias",
-                    "eastward_speed",
-                    "northward_speed",
-                    "vertical_speed",
-                    "range_bias",
+                    r"\phi_{station\ latitude}",
+                    r"\lambda_{station\ longitude}",
+                    r"h_{station\ altitude}",
+                    r"b^e_{station\ eastward\ bias}",
+                    r"b^n_{station\ northward\ bias}",
+                    r"b^v_{station\ vertical\ bias}",
+                    r"v^e_{station\ eastward\ speed}",
+                    r"v^n_{station\ northward\ speed}",
+                    r"v^v_{station\ vertical\ speed}",
+                    r"\Delta r_{station}",
                 ],
                 [
                     self.station_position.latitude,
@@ -125,18 +189,20 @@ class Station(Parameters):
         """
 
         return {
-            self.name + "_" + parameter_name: Symbol(self.name + "_" + parameter_name)
+            parameter_name.replace("station", self.name): Symbol(
+                parameter_name.replace("station", self.name)
+            )
             for parameter_name in [
-                "latitude",
-                "longitude",
-                "altitude",
-                "eastward_bias",
-                "northward_bias",
-                "vertical_bias",
-                "eastward_speed",
-                "northward_speed",
-                "vertical_speed",
-                "range_bias",
+                r"\phi_{station\ latitude}",
+                r"\lambda_{station\ longitude}",
+                r"h_{station\ altitude}",
+                r"b^e_{station\ eastward\ bias}",
+                r"b^n_{station\ northward\ bias}",
+                r"b^v_{station\ vertical\ bias}",
+                r"v^e_{station\ eastward\ speed}",
+                r"v^n_{station\ northward\ speed}",
+                r"v^v_{station\ vertical\ speed}",
+                r"\Delta r_{station}",
             ]
         }
 
@@ -148,24 +214,22 @@ class Station(Parameters):
         """
 
         # Station ECEF position (spherical Earth assumption)
-        r_station = numpy.array(
+        r_station = array(
             object=[
-                (terminal_parameter_values["Earth_radius"] + self.station_position.altitude)
+                (terminal_parameter_values[r"R_{Earth\ radius}"] + self.station_position.altitude)
                 * numpy.cos(self.station_position.latitude)
                 * numpy.cos(self.station_position.longitude),
-                (terminal_parameter_values["Earth_radius"] + self.station_position.altitude)
+                (terminal_parameter_values[r"R_{Earth\ radius}"] + self.station_position.altitude)
                 * numpy.cos(self.station_position.latitude)
                 * numpy.sin(self.station_position.longitude),
-                (terminal_parameter_values["Earth_radius"] + self.station_position.altitude)
+                (terminal_parameter_values[r"R_{Earth\ radius}"] + self.station_position.altitude)
                 * numpy.sin(self.station_position.latitude),
             ]
         )
         rho = state_vector[:3] - r_station
-        elevation = numpy.arcsin(
-            numpy.dot(rho / numpy.linalg.norm(rho), r_station / numpy.linalg.norm(r_station))
-        )
+        elevation = arcsin(dot(rho / norm(rho), r_station / norm(r_station)))
 
-        return numpy.degrees(elevation) >= self.minimal_elevation_angle
+        return degrees(elevation) >= self.minimal_elevation_angle
 
     def apply_to_station(self, expression: Expr) -> Expr:
         """
@@ -178,9 +242,9 @@ class Station(Parameters):
 
         for s in expression.free_symbols:
 
-            if s.name.startswith("station_"):
+            if "station" in s.name:
 
-                new_name = s.name.replace("station_", f"{self.name}_", 1)
+                new_name = s.name.replace("station", f"{self.name}", 1)
 
                 mapping[s] = Symbol(new_name)
 
@@ -193,59 +257,101 @@ def station_state_vector(parameter_expressions: dict[str, Expr]) -> MutableDense
     inertial frame.
     """
 
-    latitude = Symbol("station_latitude")
-    longitude = Symbol("station_longitude")
-    altitude = Symbol("station_altitude")
+    latitude = Symbol(r"\phi_{station\ latitude}")
+    longitude = Symbol(r"\lambda_{station\ longitude}")
+    altitude = Symbol(r"h_{station\ altitude}")
+    station_eastward_speed = Symbol(r"v^e_{station\ eastward\ speed}")
+    station_northward_speed = Symbol(r"v^n_{station\ northward\ speed}")
+    station_vertical_speed = Symbol(r"v^v_{station\ vertical\ speed}")
 
     # Nominal ECEF position assuming spherical Earth.
     r_ecef = MutableDenseMatrix(
         [
-            (parameter_expressions["Earth_radius"] + altitude) * cos(latitude) * cos(longitude),
-            (parameter_expressions["Earth_radius"] + altitude) * cos(latitude) * sin(longitude),
-            (parameter_expressions["Earth_radius"] + altitude) * sin(latitude),
+            (parameter_expressions[r"R_{Earth\ radius}"] + altitude)
+            * cos(latitude)
+            * cos(longitude),
+            (parameter_expressions[r"R_{Earth\ radius}"] + altitude)
+            * cos(latitude)
+            * sin(longitude),
+            (parameter_expressions[r"R_{Earth\ radius}"] + altitude) * sin(latitude),
         ]
     )
     enu_offset = MutableDenseMatrix(
         [
-            Symbol("station_eastward_bias")
-            + Symbol("station_eastward_speed") * parameter_expressions["t"],
-            Symbol("station_northward_bias")
-            + Symbol("station_northward_speed") * parameter_expressions["t"],
-            Symbol("station_vertical_bias")
-            + Symbol("station_vertical_speed") * parameter_expressions["t"],
+            Symbol(r"b^e_{station\ eastward\ bias}")
+            + station_eastward_speed * parameter_expressions[r"t"],
+            Symbol(r"b^n_{station\ northward\ bias}")
+            + station_northward_speed * parameter_expressions[r"t"],
+            Symbol(r"b^v_{station\ vertical\ bias}")
+            + station_vertical_speed * parameter_expressions[r"t"],
         ]
     )
     enu_velocity = MutableDenseMatrix(
-        [
-            Symbol("station_eastward_speed"),
-            Symbol("station_northward_speed"),
-            Symbol("station_vertical_speed"),
-        ]
+        [station_eastward_speed, station_northward_speed, station_vertical_speed]
     )
     enu_to_ecef = rotation_matrix(
         angle=longitude, unit_vector=MutableDenseMatrix([0, 0, 1])
     ) @ rotation_matrix(angle=latitude, unit_vector=MutableDenseMatrix([0, 1, 0]))
     r_ecef_total = r_ecef + enu_to_ecef @ enu_offset
     v_ecef_local = Matrix(enu_to_ecef @ enu_velocity)
-    r_eci = Matrix(
-        rotation_matrix(
-            angle=parameter_expressions["arc_start_Earth_rotation_angle"]
-            + parameter_expressions["Earth_rotation_angular_speed"] * parameter_expressions["t"]
-        )
-        @ r_ecef_total
-    )
+    r_eci = Matrix(ecef_to_eci(parameter_expressions=parameter_expressions) @ r_ecef_total)
 
     # Inertial velocity: omega * r + rotated local velocity.
     return MutableDenseMatrix.vstack(
         Matrix(r_eci),
         Matrix(
-            rotation_matrix(
-                angle=parameter_expressions["arc_start_Earth_rotation_angle"]
-                + parameter_expressions["Earth_rotation_angular_speed"] * parameter_expressions["t"]
-            )
-            @ v_ecef_local
+            ecef_to_eci(parameter_expressions=parameter_expressions) @ v_ecef_local
             + MutableDenseMatrix(
-                [0, 0, parameter_expressions["Earth_rotation_angular_speed"]]
+                [0, 0, parameter_expressions[r"\omega_{Earth\ rotation\ angular\ speed}"]]
             ).cross(r_eci)
         ),
     )
+
+
+def get_stations(
+    stations_path: Path = TEST_OUTPUT_PATH, station_file_name: str = "stations"
+) -> dict[str, Station]:
+    """
+    Reads a (.CSV) file to get all station informations.
+    """
+
+    stations = {}
+    dataframe = read_csv(filepath_or_buffer=stations_path.joinpath(station_file_name + ".csv"))
+
+    for (
+        station_id,
+        latitude,
+        longitude,
+        altitude,
+        eastward_speed,
+        northward_speed,
+        vertical_speed,
+        range_bias,
+        minimal_elevation_angle,
+    ) in zip(
+        dataframe["station_id"].to_list(),
+        dataframe["latitude"].to_list(),
+        dataframe["longitude"].to_list(),
+        dataframe["altitude"].to_list(),
+        dataframe["eastward_speed"].to_list(),
+        dataframe["northward_speed"].to_list(),
+        dataframe["vertical_speed"].to_list(),
+        dataframe["range_bias"].to_list(),
+        dataframe["minimal_elevation_angle"].to_list(),
+    ):
+
+        stations[station_id] = Station(
+            name=station_id,
+            station_position=StationPosition(
+                latitude=latitude, longitude=longitude, altitude=altitude
+            ),
+            station_parameters=StationParameters(
+                eastward_speed=eastward_speed,
+                northward_speed=northward_speed,
+                vertical_speed=vertical_speed,
+                range_bias=range_bias,
+            ),
+            minimal_elevation_angle=minimal_elevation_angle,
+        )
+
+    return stations

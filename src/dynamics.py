@@ -2,31 +2,30 @@
 Regroups all forces defined in the different force modules.
 """
 
-import pkgutil
-from importlib import import_module
-from inspect import getmembers, isfunction
-from sys import modules
-from typing import Callable
-
 from sympy import Expr, Matrix, MutableDenseMatrix
 
-from .parameters import SimulationParameters
-from .utils import STATE_VECTOR_LINE, STATE_VECTOR_MATRIX, speed
+from .simulation_parameters import ALL_FORCES, SimulationParameters
+from .utils import STATE_VECTOR_LINE, STATE_VECTOR_MATRIX, rotation_matrix, speed
 
-pkg = modules[__name__].__package__ or __name__.rpartition(".")[0]
-all_forces: dict[str, Callable] = {}
 
-for _, modname, ispkg in pkgutil.iter_modules(getattr(import_module(pkg), "__path__", [])):
+def ecef_to_eci(parameter_expressions: dict[str, Expr]) -> MutableDenseMatrix:
+    """
+    Returns the rotation matrix from Earth-fixed frame to intertial frame.
+    """
 
-    if "force" in modname:
+    return rotation_matrix(
+        angle=parameter_expressions[r"\theta_{arc\ start\ Earth\ rotation\ angle}"]
+        + parameter_expressions[r"\omega_{Earth\ rotation\ angular\ speed}"]
+        * parameter_expressions[r"t"]
+    )
 
-        module = import_module(f"{pkg}.{modname}")
 
-        for name, func in getmembers(module, isfunction):
+def eci_to_ecef(parameter_expressions: dict[str, Expr]) -> MutableDenseMatrix:
+    """
+    Returns the rotation matrix from intertial frame to Earth-fixed frame.
+    """
 
-            if func.__module__ == module.__name__:
-
-                all_forces[name] = func
+    return ecef_to_eci(parameter_expressions=parameter_expressions).T
 
 
 def symbolic_propagator(
@@ -43,22 +42,22 @@ def symbolic_propagator(
         sum(
             (
                 (
-                    all_forces[force](
+                    ALL_FORCES[force_name](
                         state_vector, simulation_parameters.parameter_expressions, force_parameters
                     )
                     if force_parameters
-                    else all_forces[force](
+                    else ALL_FORCES[force_name](
                         state_vector, simulation_parameters.parameter_expressions
                     )
                 )
-                for force, force_parameters in simulation_parameters.simulated_forces.items()
+                for force_name, force_parameters in simulation_parameters.simulated_forces.items()
             ),
             start=MutableDenseMatrix.zeros(rows=3, cols=1),
         ),
     )
 
 
-def vetor_variation_equation(dynamic: MutableDenseMatrix, parameter: Expr) -> MutableDenseMatrix:
+def vector_variation_equation(dynamic: MutableDenseMatrix, parameter: Expr) -> MutableDenseMatrix:
     """
     Applies the variation method to algebraically derive the time-dependent behavior of a partial
     derivative to integrate on the satellite's dynamic quadrature points.

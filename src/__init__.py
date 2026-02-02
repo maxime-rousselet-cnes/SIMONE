@@ -1,9 +1,5 @@
 """
-Functions to call from outside the src package: to be called from main scripts.
+The src package is self-sufficient. It contains every main function and test functions.
+To be tested by calling pytest test.py.
+Please verify style by calling pylint /src.
 """
-
-from .forward_simulation import test_forward_simulation
-from .observation import test_observations
-from .quadrature import test_quadrature
-
-functions = [test_forward_simulation, test_observations, test_quadrature]

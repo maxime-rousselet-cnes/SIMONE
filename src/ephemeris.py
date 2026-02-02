@@ -2,8 +2,9 @@
 Provides base spatial dynamics formulas.
 """
 
-from sympy import Expr, Matrix, MutableDenseMatrix, Symbol, cos, pi, sin, sqrt
+from sympy import Expr, Matrix, MutableDenseMatrix, Symbol, cos, sin, sqrt
 
+from .base_constants import radians
 from .utils import rotation_matrix
 
 
@@ -21,12 +22,12 @@ class OrbitalParameters:
 
     def __init__(self) -> None:
 
-        self.semi_major_axis = Symbol("semi_major_axis")
-        self.eccentricity = Symbol("eccentricity")
-        self.inclination = Symbol("inclination")
-        self.right_ascension_ascending_node = Symbol("right_ascension_ascending_node")
-        self.argument_of_periapsis = Symbol("argument_of_periapsis")
-        self.true_anomaly = Symbol("true_anomaly")
+        self.semi_major_axis = Symbol(r"a_{semi-major\ axis}")
+        self.eccentricity = Symbol(r"e_{eccentricity}")
+        self.inclination = Symbol(r"i_{inclination}")
+        self.right_ascension_ascending_node = Symbol(r"\Omega_{right\ ascension\ ascending\ node}")
+        self.argument_of_periapsis = Symbol(r"\omega_{argument\ of\ periapsis}")
+        self.true_anomaly = Symbol(r"\nu_{true\ anomaly}")
 
     def to_cartesian_state(
         self,
@@ -37,28 +38,28 @@ class OrbitalParameters:
         """
 
         rotation_orbital_plane_to_inertial = rotation_matrix(
-            angle=pi / 180 * self.right_ascension_ascending_node
+            angle=radians(self.right_ascension_ascending_node)
         ) @ (
             rotation_matrix(
-                angle=pi / 180 * self.inclination,
+                angle=radians(self.inclination),
                 unit_vector=MutableDenseMatrix([[1], [0], [0]]),
             )
-            @ rotation_matrix(angle=pi / 180 * self.argument_of_periapsis)
+            @ rotation_matrix(angle=radians(self.argument_of_periapsis))
         )
         impact_parameter = self.semi_major_axis * (1 - self.eccentricity**2)
-        radius = impact_parameter / (1 + self.eccentricity * cos(pi / 180 * self.true_anomaly))
+        radius = impact_parameter / (1 + self.eccentricity * cos(radians(self.true_anomaly)))
         orbital_plane_position = MutableDenseMatrix(
             [
-                [radius * cos(pi / 180 * self.true_anomaly)],
-                [radius * sin(pi / 180 * self.true_anomaly)],
+                [radius * cos(radians(self.true_anomaly))],
+                [radius * sin(radians(self.true_anomaly))],
                 [0],
             ]
         )
         velocity_proxy = sqrt(gravitational_parameter / impact_parameter)
         orbital_plane_speed = MutableDenseMatrix(
             [
-                [-velocity_proxy * sin(pi / 180 * self.true_anomaly)],
-                [velocity_proxy * (self.eccentricity + cos(pi / 180 * self.true_anomaly))],
+                [-velocity_proxy * sin(radians(self.true_anomaly))],
+                [velocity_proxy * (self.eccentricity + cos(radians(self.true_anomaly)))],
                 [0],
             ]
         )
