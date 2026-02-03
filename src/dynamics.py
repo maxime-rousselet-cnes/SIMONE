@@ -5,7 +5,7 @@ Regroups all forces defined in the different force modules.
 from sympy import Expr, Matrix, MutableDenseMatrix
 
 from .simulation_parameters import ALL_FORCES, SimulationParameters
-from .utils import STATE_VECTOR_LINE, STATE_VECTOR_MATRIX, rotation_matrix, speed
+from .utils import rotation_matrix, speed
 
 
 def ecef_to_eci(parameter_expressions: dict[str, Expr]) -> MutableDenseMatrix:
@@ -55,28 +55,3 @@ def symbolic_propagator(
             start=MutableDenseMatrix.zeros(rows=3, cols=1),
         ),
     )
-
-
-def vector_variation_equation(dynamic: MutableDenseMatrix, parameter: Expr) -> MutableDenseMatrix:
-    """
-    Applies the variation method to algebraically derive the time-dependent behavior of a partial
-    derivative to integrate on the satellite's dynamic quadrature points.
-    """
-
-    return Matrix(
-        [
-            [variation_equation(expression=expression, parameter=parameter)]
-            for expression in dynamic.flat()
-        ]
-    )
-
-
-def variation_equation(expression: Expr, parameter: Expr) -> Expr:
-    """
-    Applies the variation method to algebraically derive a partial derivative expression with
-    respect to aparameter.
-    """
-
-    return MutableDenseMatrix(
-        [expression.diff(state_parameter) for state_parameter in STATE_VECTOR_LINE]
-    ).dot(b=STATE_VECTOR_MATRIX.diff(parameter)) + expression.diff(parameter)

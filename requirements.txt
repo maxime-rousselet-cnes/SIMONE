@@ -1,0 +1,13 @@
+matplotlib
+numpy
+plotly
+pydantic
+sympy
+pandas
+scipy
+ipykernel
+
+pytest
+black
+isort
+pylint

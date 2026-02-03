@@ -9,6 +9,8 @@ from matplotlib.image import imread
 from numpy import flipud, ndarray, zeros_like
 from sympy import Expr, pi
 
+DEFAULT_MAX_ITERATIONS = 3
+DFAULT_CONVERGENCE_THRESHOLD = 1e-2
 TEST_OUTPUT_PATH = Path("test")
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 EARTH_IMAGE_NAME = "earth.jpg"
@@ -25,9 +27,11 @@ EARTH_GROUND_MASK = (GRAY_EARTH_IMAGE >= DARK_PLOT_THRESHOLD) & (
 EARTH_SURFACE_COLOR[EARTH_GROUND_MASK] = 0.5  # Maps the rest to deep green.
 EARTH_COLOR_SCALE = [[0.0, "rgb(30,59,117)"], [0.5, "rgb(46,68,21)"], [1.0, "rgb(255,255,255)"]]
 DEFAULT_MU = 3.986004418e14
+TEST_J2 = 1e-2
 DEFAULT_TERMINAL_PARAMETER_VALUES = {
     r"R_{Earth\ radius}": EARTH_RADIUS,
     r"\mu_{gravitational\ parameter}": DEFAULT_MU,
+    r"J_2": TEST_J2,
     r"a_{semi-major\ axis}": 7e6,
     r"e_{eccentricity}": 0.05,
     r"i_{inclination}": 45.0,

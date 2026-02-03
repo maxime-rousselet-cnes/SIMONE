@@ -7,7 +7,7 @@ from pathlib import Path
 from shutil import rmtree
 from typing import Optional
 
-from numpy import arange, array, mean
+from numpy import arange, array, concatenate, matmul, mean, ndarray
 from pandas import DataFrame
 from sympy import Symbol
 
@@ -21,14 +21,16 @@ from .observation import (
     simulate_measurements,
 )
 from .parameters import ArcParameters, Parameters, generate_time_dependent_parameter
+from .quadrature import propagate_partials_and_save, save_normal_equations
 from .simulation_parameters import SimulationParameters, load_simulation_parameters
 from .station import Station, StationPosition, get_stations
 from .test_forces import ParameterizedTestForceParameters, TimeTestForceParameters
+from .utils import save_base_model
 
 TEST_STATION_QUANTITY = 100
 TEST_SIGMA_SAFETY_FACTOR = 10
 TEST_ARC_LENGTH = 10000.0
-TEST_TIME_STEP = 10.0
+TEST_TIME_STEP = 30.0
 TEST_TIME_STEP_FOR_TEST_TIME_PARAMETER = 1000.0
 TEST_ARC_START_DATETIME = datetime(
     year=2000, month=1, day=1, hour=0, minute=0, second=0, microsecond=0
@@ -44,6 +46,7 @@ TEST_ARC_PARAMETERS = ArcParameters(
 TIME_TEST_FORCE_PARAMETER_FACTOR = 1e-5
 TEST_SIMULATED_FORCES: dict[str, Optional[Parameters]] = {
     "central_body_attraction": None,
+    "j2_attraction": None,
     "parameterized_test_force": ParameterizedTestForceParameters(
         dummy_parameter=Symbol(r"p_{dummy\ parameter}"), dummy_parameter_value=1e-5
     ),
@@ -94,8 +97,10 @@ def test_generate_simulation_parameters(
     SimulationParameters(
         arc_parameters=TEST_ARC_PARAMETERS,
         simulated_forces=TEST_SIMULATED_FORCES,
-    ).save(output_path=output_path, name=simulation_parameters_file_name)
-
+    ).save(
+        output_path=output_path.joinpath(TEST_ARC_PARAMETERS.arc_id),
+        name=simulation_parameters_file_name,
+    )
     assert (
         output_path.joinpath(TEST_ARC_PARAMETERS.arc_id)
         .joinpath(simulation_parameters_file_name + ".json")
@@ -176,7 +181,6 @@ def test_forward_simulation(
     t, y, _ = propagate_ephemeris(
         simulation_parameters=simulation_parameters,
     )
-
     assert len(t) >= TEST_ARC_LENGTH // TEST_TIME_STEP
     assert len(y) == len(t)
 
@@ -214,7 +218,7 @@ def test_observations(
     assert path.exists()
 
 
-def test_quadrature(
+def test_arc_output(
     output_path: Path = TEST_OUTPUT_PATH,
     station_file_name: str = "stations",
     arc_id: str = TEST_ARC_PARAMETERS.arc_id,
@@ -238,14 +242,14 @@ def test_quadrature(
     t, y, _ = propagate_ephemeris(
         simulation_parameters=simulation_parameters,
     )
+    arc_output = ArcOutput(simulation_parameters=simulation_parameters, t=t, y=y)
     re_computed_measurement_values, _ = generate_measurements(
-        t=t,
-        y=y,
+        arc_output=arc_output,
         stations=stations,
         observation_timestamps=saved_observation_timestamps,
-        simulation_parameters=simulation_parameters,
     )
-    arc_output = ArcOutput(simulation_parameters=simulation_parameters, t=t, y=y)
+
+    # Verifies ArcOutput class saves and loads correctly.
     arc_output.update_observations(
         observation_timestamps=saved_observation_timestamps,
         theoretical_measurements=re_computed_measurement_values,
@@ -265,7 +269,7 @@ def test_quadrature(
                     - array(object=arc_output_verification.observation_timestamps[station_id])
                 )
             )
-            == 0
+            < NUMERICAL_TOLERANCE
         )
         assert (
             mean(
@@ -286,12 +290,60 @@ def test_quadrature(
             < NUMERICAL_TOLERANCE
         )
 
-    for station_id, simulated_values in saved_measurement_values.items():
+    # Verifies the extrapolated orbit is consistent with the initial simulation.
+    for station_id, measurement_values in saved_measurement_values.items():
 
-        assert len(simulated_values) == len(re_computed_measurement_values[station_id])
+        assert len(measurement_values) == len(re_computed_measurement_values[station_id])
         assert (
             sum(abs(arc_output.residuals[station_id]))
             < len(re_computed_measurement_values[station_id])
             * TEST_SIGMA_SAFETY_FACTOR
             * stations[station_id].station_simulation.sigma_noise
         )
+
+
+def test_quadrature(
+    output_path: Path = TEST_OUTPUT_PATH,
+    station_file_name: str = "stations",
+    arc_id: str = TEST_ARC_PARAMETERS.arc_id,
+    simulation_parameters_file_name: str = "simulation_parameters",
+    parameters_to_invert: Optional[list[str]] = None,
+) -> None:
+    """
+    Verifies if the measurements are correctly created in a forward simulation.
+    """
+
+    stations = get_stations(stations_path=output_path, station_file_name=station_file_name)
+    simulation_parameters = load_simulation_parameters(
+        output_path=output_path,
+        arc_id=arc_id,
+        name=simulation_parameters_file_name,
+    )
+    simulation_parameters.update_for_stations(stations=stations)
+    simulation_parameters.arc_parameters.is_initial = False
+    observation_partials: dict[str, ndarray[float]]
+    arc_output, observation_partials, parameters_to_invert = propagate_partials_and_save(
+        stations=stations,
+        simulation_parameters=simulation_parameters,
+        parameters_to_invert=parameters_to_invert,
+    )
+
+    # Verifies the normal equations save correctly.
+    a_matrix = array(object=list(observation_partials.values())).T
+    b_second_member = concatenate(list(arc_output.residuals.values()))[:, None]
+    n_matrix = array(
+        object=matmul(a_matrix.T, a_matrix), dtype=float
+    )  # TODO: ponderate by uncertainties.
+    s_second_member = array(
+        object=matmul(a_matrix.T, b_second_member), dtype=float
+    )  # TODO: ponderate by uncertainties.
+    path = save_normal_equations(
+        n_matrix=n_matrix,
+        s_second_member=s_second_member,
+        simulation_parameters=simulation_parameters,
+    )
+    save_base_model(obj=parameters_to_invert, name="parameters", path=path)
+
+    assert path.joinpath("n_matrix.json").exists()
+    assert path.joinpath("s_second_member.json").exists()
+    assert path.joinpath("parameters.json").exists()

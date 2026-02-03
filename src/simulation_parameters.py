@@ -9,7 +9,7 @@ from typing import Optional
 from sympy import Expr, MutableDenseMatrix, Symbol, simplify, srepr
 
 from .base_constants import DATETIME_FORMAT, DEFAULT_TERMINAL_PARAMETER_VALUES, TEST_OUTPUT_PATH
-from .gravitational_forces import central_body_attraction
+from .gravitational_forces import central_body_attraction, j2_attraction
 from .parameters import ArcParameters, Parameters
 from .test_forces import (
     ParameterizedTestForceParameters,
@@ -21,11 +21,13 @@ from .utils import load_base_model, save_base_model
 
 ALL_FORCES = {
     "central_body_attraction": central_body_attraction,
+    "j2_attraction": j2_attraction,
     "parameterized_test_force": parameterized_test_force,
     "time_test_force": time_test_force,
 }
 ALL_FORCES_PARAMETERS = {
     "central_body_attraction": None,
+    "j2_attraction": None,
     "parameterized_test_force": ParameterizedTestForceParameters,
     "time_test_force": TimeTestForceParameters,
 }
@@ -147,7 +149,7 @@ class SimulationParameters:
                 "terminal_parameter_values": self.terminal_parameter_values,
             },
             name=name,
-            path=output_path.joinpath(self.arc_parameters.arc_id),
+            path=output_path,
         )
 
 

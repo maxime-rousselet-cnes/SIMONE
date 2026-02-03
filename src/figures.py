@@ -27,15 +27,15 @@ from .utils import evaluate_terminal_parameters
 TRAJECTORY_COLOR = "purple"
 TRAJECTORY_LINE_WIDTH = 20
 CLOSEST_ORBIT_COLOR = "red"
-CLOSEST_ORBIT_LINE_WIDTH = 10
+CLOSEST_ORBIT_LINE_WIDTH = 5
 RANGE_MEASUREMENT_COLOR = "red"
 RANGE_MEASUREMENT_WIDTH = 10
 STATION_COLOR = "red"
 STATION_DOT_SIZE = 20
-DEFAULT_FRAME_DURATION = 40  # (ms).
-DEFAULT_SNAKE_LENGTH = 20
-DEFAULT_ELLIPSE_NUMBER_OF_POINTS = 200
-SPEED_UP_FACTOR = 20
+DEFAULT_FRAME_DURATION = 50  # (ms).
+DEFAULT_SNAKE_LENGTH = 500
+DEFAULT_ELLIPSE_NUMBER_OF_POINTS = 100
+SPEED_UP_FACTOR = 10
 
 
 def elliptical_orbit_points(
@@ -288,6 +288,7 @@ class AnimationParameters:
                     z=ellipses[time_index][:, 2],
                     mode="lines",
                     line={"color": CLOSEST_ORBIT_COLOR, "width": CLOSEST_ORBIT_LINE_WIDTH},
+                    name="",
                 )
             )
 
@@ -304,6 +305,7 @@ class AnimationParameters:
                 ],
                 mode="lines",
                 line={"color": TRAJECTORY_COLOR, "width": TRAJECTORY_LINE_WIDTH},
+                name="",
             )
         )
 

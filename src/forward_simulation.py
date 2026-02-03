@@ -72,7 +72,7 @@ def propagate_ephemeris(
         # Manages surface crash.
         if norm(y[-1][:3]) <= simulation_parameters.terminal_parameter_values[r"R_{Earth\ radius}"]:
 
-            break
+            assert False
 
         rk45_integrator.step()
 

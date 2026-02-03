@@ -12,8 +12,8 @@ from numpy import ndarray
 from pydantic import BaseModel
 from sympy import Expr, Identity, Matrix, MutableDenseMatrix, Piecewise, cos, sin, symbols
 
-STATE_VECTOR_LINE = list(symbols(r"x y z v_x v_y v_z"))
-STATE_VECTOR_MATRIX: MutableDenseMatrix = Matrix(STATE_VECTOR_LINE).T
+STATE_VECTOR_LINE = list(symbols(r"x y z \dot{x} \dot{y} \dot{z}"))
+STATE_VECTOR_MATRIX: MutableDenseMatrix = Matrix(STATE_VECTOR_LINE)
 
 
 def position(state_vector: MutableDenseMatrix) -> MutableDenseMatrix:
