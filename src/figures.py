@@ -4,6 +4,8 @@ Defines all plot functions for teaching purposes.
 
 # TODO: Range shown the two frames around the observation timestep.
 # TODO: Point.
+# TODO: Automate correlation plots.
+
 from pathlib import Path
 from typing import Optional
 

@@ -238,12 +238,15 @@ def propagate_partials_and_save(
         generalized_symbolic_propagator=generalized_symbolic_propagator,
         parameters_to_invert=parameters_to_invert,
     )
-    observation_partials = integrate_observation_partials(
-        arc_output=arc_output,
-        state_vector_partials_per_parameter_expressions=partials,
-        state_vector_partials_per_parameter_values=numerical_partials,
-        measurement_expressions=measurement_expressions,
-        observation_timestamps=observation_timestamps,
-    )
 
-    return arc_output, observation_partials, parameters_to_invert
+    return (
+        arc_output,
+        integrate_observation_partials(
+            arc_output=arc_output,
+            state_vector_partials_per_parameter_expressions=partials,
+            state_vector_partials_per_parameter_values=numerical_partials,
+            measurement_expressions=measurement_expressions,
+            observation_timestamps=observation_timestamps,
+        ),
+        parameters_to_invert,
+    )

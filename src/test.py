@@ -2,6 +2,9 @@
 All base functionalities. To test via pytest test.py.
 """
 
+# TODO: Test function that retrieves dummy parameter.
+# TODO: Test function that cumulates the dummy parameter over 2 arcs.
+
 from datetime import datetime, timedelta
 from pathlib import Path
 from shutil import rmtree
