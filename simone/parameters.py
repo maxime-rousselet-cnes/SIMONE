@@ -168,7 +168,7 @@ def generate_time_dependent_parameter(
     symbol: str,
     arc_start_datetime: datetime,
     datetime_sampling_values: list[datetime],
-    parameter_values: list[float] | ndarray[float],
+    parameter_values: list[float] | ndarray,
     interpolation_order: int = 4,
 ) -> TimeDependentParameter:
     """

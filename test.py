@@ -10,25 +10,34 @@ from pathlib import Path
 from shutil import rmtree
 from typing import Optional
 
+from base_models import save_base_model
 from numpy import arange, array, concatenate, matmul, mean, ndarray
 from pandas import DataFrame
 from sympy import Symbol
 
-from .base_constants import TEST_OUTPUT_PATH
-from .forward_simulation import propagate_ephemeris
-from .observation import (
+from simone import (
+    TEST_OUTPUT_PATH,
     ArcOutput,
+    ArcParameters,
+    ParameterizedTestForceParameters,
+    Parameters,
+    SimulationParameters,
+    Station,
+    StationPosition,
+    TimeTestForceParameters,
     generate_measurements,
+    generate_numerically_initial_condition,
+    generate_time_dependent_parameter,
+    geographic_coordinates_from_cartesian,
     get_measurements,
+    get_stations,
     load_arc_output,
+    load_simulation_parameters,
+    propagate_ephemeris,
+    propagate_partials_and_save,
+    save_normal_equations,
     simulate_measurements,
 )
-from .parameters import ArcParameters, Parameters, generate_time_dependent_parameter
-from .quadrature import propagate_partials_and_save, save_normal_equations
-from .simulation_parameters import SimulationParameters, load_simulation_parameters
-from .station import Station, StationPosition, get_stations
-from .test_forces import ParameterizedTestForceParameters, TimeTestForceParameters
-from .utils import save_base_model
 
 TEST_STATION_QUANTITY = 100
 TEST_SIGMA_SAFETY_FACTOR = 10
@@ -114,16 +123,27 @@ def test_generate_simulation_parameters(
 def test_generate_stations(
     output_path: Path = TEST_OUTPUT_PATH,
     station_file_name: str = "stations",
+    arc_id: str = TEST_ARC_PARAMETERS.arc_id,
+    simulation_parameters_file_name: str = "simulation_parameters",
+    # Ensures a virtual station at least has the satellite in visibility at the arc's beginning.
+    deterministic_station: bool = True,
 ) -> None:
     """
     Generates on-continents virtual stations for simulation/test purposes and saves a corresponding
     (.CSV) file.
     """
 
-    station_ids = []
-    latitude, longitude, altitude = [], [], []
-    eastward_speed, northward_speed, vertical_speed, range_bias = [], [], [], []
-    minimal_elevation_angle = []
+    data = {
+        "station_id": [],
+        "latitude": [],
+        "longitude": [],
+        "altitude": [],
+        "eastward_speed": [],
+        "northward_speed": [],
+        "vertical_speed": [],
+        "range_bias": [],
+        "minimal_elevation_angle": [],
+    }
     stations = {
         r"station\ test\ id\ "
         + str(k): Station(
@@ -133,32 +153,42 @@ def test_generate_stations(
         for k in range(TEST_STATION_QUANTITY)
     }
 
+    if deterministic_station:
+
+        y_0 = generate_numerically_initial_condition(
+            simulation_parameters=load_simulation_parameters(
+                output_path=output_path,
+                arc_id=arc_id,
+                name=simulation_parameters_file_name,
+            )
+        )
+        deterministic_station_latitude, deterministic_station_longitude = (
+            geographic_coordinates_from_cartesian(r=y_0[:3])
+        )
+        stations |= {
+            r"station\ deterministic": Station(
+                name=r"station\ deterministic",
+                station_position=StationPosition(
+                    latitude=deterministic_station_latitude,
+                    longitude=deterministic_station_longitude,
+                ),
+            )
+        }
+
     for station_id, station in stations.items():
 
-        station_ids += [station_id]
-        latitude += [station.station_position.latitude]
-        longitude += [station.station_position.longitude]
-        altitude += [station.station_position.altitude]
-        eastward_speed += [station.station_parameters.eastward_speed]
-        northward_speed += [station.station_parameters.northward_speed]
-        vertical_speed += [station.station_parameters.vertical_speed]
-        range_bias += [station.station_parameters.range_bias]
-        minimal_elevation_angle += [station.minimal_elevation_angle]
+        data["station_id"] += [station_id]
+        data["latitude"] += [station.station_position.latitude]
+        data["longitude"] += [station.station_position.longitude]
+        data["altitude"] += [station.station_position.altitude]
+        data["eastward_speed"] += [station.station_parameters.eastward_speed]
+        data["northward_speed"] += [station.station_parameters.northward_speed]
+        data["vertical_speed"] += [station.station_parameters.vertical_speed]
+        data["range_bias"] += [station.station_parameters.range_bias]
+        data["minimal_elevation_angle"] += [station.minimal_elevation_angle]
 
     output_path.mkdir(exist_ok=True, parents=True)
-    DataFrame(
-        data={
-            "station_id": station_ids,
-            "latitude": latitude,
-            "longitude": longitude,
-            "altitude": altitude,
-            "eastward_speed": eastward_speed,
-            "northward_speed": northward_speed,
-            "vertical_speed": vertical_speed,
-            "range_bias": range_bias,
-            "minimal_elevation_angle": minimal_elevation_angle,
-        }
-    ).to_csv(
+    DataFrame(data=data).to_csv(
         path_or_buf=output_path.joinpath(station_file_name + ".csv"),
         index=False,
     )
@@ -216,8 +246,11 @@ def test_observations(
 
         rmtree(path)
 
-    simulate_measurements(t=t, y=y, stations=stations, simulation_parameters=simulation_parameters)
+    station_theoretical_measurements = simulate_measurements(
+        t=t, y=y, stations=stations, simulation_parameters=simulation_parameters
+    )
 
+    assert len(station_theoretical_measurements) > 0
     assert path.exists()
 
 
@@ -310,11 +343,15 @@ def test_quadrature(
     station_file_name: str = "stations",
     arc_id: str = TEST_ARC_PARAMETERS.arc_id,
     simulation_parameters_file_name: str = "simulation_parameters",
-    parameters_to_invert: Optional[list[str]] = None,
+    parameters_to_invert: Optional[dict[str, list[str]]] = None,
 ) -> None:
     """
     Verifies if the measurements are correctly created in a forward simulation.
     """
+
+    if parameters_to_invert is None:
+
+        parameters_to_invert = {"dynamic": None, "station": None}
 
     stations = get_stations(stations_path=output_path, station_file_name=station_file_name)
     simulation_parameters = load_simulation_parameters(
@@ -324,7 +361,8 @@ def test_quadrature(
     )
     simulation_parameters.update_for_stations(stations=stations)
     simulation_parameters.arc_parameters.is_initial = False
-    observation_partials: dict[str, ndarray[float]]
+    observation_partials: dict[str, ndarray]
+
     arc_output, observation_partials, parameters_to_invert = propagate_partials_and_save(
         stations=stations,
         simulation_parameters=simulation_parameters,

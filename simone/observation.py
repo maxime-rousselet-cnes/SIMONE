@@ -6,6 +6,7 @@ from pathlib import Path
 from random import random
 from typing import Optional
 
+from base_models import evaluate_terminal_parameters, load_base_model, save_base_model
 from numpy import array, ndarray
 from numpy.random import normal
 from pandas import DataFrame, read_csv
@@ -14,20 +15,90 @@ from sympy import Expr, Symbol
 from .base_constants import TEST_OUTPUT_PATH
 from .simulation_parameters import SimulationParameters, load_simulation_parameters
 from .station import Station, station_state_vector
-from .utils import (
-    STATE_VECTOR_LINE,
-    STATE_VECTOR_MATRIX,
-    distance,
-    evaluate_terminal_parameters,
-    load_base_model,
-    save_base_model,
-)
+from .utils import STATE_VECTOR_LINE, STATE_VECTOR_MATRIX, distance
+
+
+class ArcOutput:
+    """
+    To be used for post-process or plot purposes.
+    """
+
+    simulation_parameters: SimulationParameters
+    t: ndarray
+    y: ndarray
+    observation_timestamps: dict[str, list[float]] = {}
+    simulated_measurements: dict[str, list[float]] = {}
+    residuals: dict[str, list[float]] = {}
+
+    def __init__(
+        self,
+        simulation_parameters: SimulationParameters,
+        t: ndarray,
+        y: ndarray,
+    ) -> None:
+
+        self.simulation_parameters = simulation_parameters
+        self.t = t
+        self.y = y
+
+    def update_observations(
+        self,
+        observation_timestamps: dict[str, list[float]],
+        theoretical_measurements: dict[str, list[float]],
+        real_measurements: dict[str, list[float]],
+    ) -> None:
+        """
+        Difference.
+        """
+
+        self.simulation_parameters.arc_parameters.is_initial = False
+        self.observation_timestamps = observation_timestamps
+        self.simulated_measurements = theoretical_measurements
+        self.residuals = compute_residuals(
+            theoretical_measurements=theoretical_measurements,
+            real_measurements=real_measurements,
+        )
+
+    def save(self, output_path: Path = TEST_OUTPUT_PATH, iteration: int = 0) -> None:
+        """
+        In (.JSON) file.
+        """
+
+        path = (
+            output_path.joinpath(self.simulation_parameters.arc_parameters.arc_id)
+            .joinpath(str(iteration))
+            .joinpath("arc_output")
+        )
+        path.mkdir(exist_ok=True, parents=True)
+        self.simulation_parameters.save(output_path=path)
+        save_base_model(
+            obj=self.t,
+            name="t",
+            path=path,
+        )
+        save_base_model(
+            obj=self.y,
+            name="y",
+            path=path,
+        )
+        save_measurements(
+            argument=str(iteration) + "/arc_output/simulated_measurements",
+            observation_timestamps=self.observation_timestamps,
+            station_theoretical_measurements=self.simulated_measurements,
+            simulation_parameters=self.simulation_parameters,
+        )
+        save_measurements(
+            argument=str(iteration) + "/arc_output/residuals",
+            observation_timestamps=self.observation_timestamps,
+            station_theoretical_measurements=self.residuals,
+            simulation_parameters=self.simulation_parameters,
+        )
 
 
 def apply_lagrange_kernel(
     expression: Expr,
     arc_output: ArcOutput,
-    y: ndarray[float],
+    y: ndarray,
     to_interpolate: list[Expr],
     time_index: int,
 ) -> Expr:
@@ -74,8 +145,8 @@ def interpolate_function_of_position(
     arc_output: ArcOutput,
     observation_timestamps: list[float],
     partials: Optional[list[Expr]] = None,
-    partial_numerical_values: Optional[ndarray[float]] = None,
-) -> list[float | ndarray[float]]:
+    partial_numerical_values: Optional[ndarray] = None,
+) -> list[float | ndarray]:
     """
     Applies numerically any function that depends on the interpolation of the state vector.
     """
@@ -121,34 +192,22 @@ def interpolate_function_of_position(
     return results
 
 
-def get_station_range(parameter_expressions: dict[str, Expr], station_id: str) -> Expr:
-    """
-    Gets the wanted symbol for station range bias.
-    """
-
-    for parameter in parameter_expressions:
-
-        if station_id in parameter and "Delta" in parameter:
-
-            return parameter_expressions[parameter]
-
-    return Expr(0)
-
-
 def generate_measurements(
     arc_output: ArcOutput,
     stations: dict[str, Station],
     observation_timestamps: dict[str, list[float]],
-) -> tuple[dict[str, list[float]], dict[str, Expr]]:
+) -> tuple[dict[str, list[float]], Expr]:
     """
     Produces theoretical measurement values from integrated state vectors.
     """
 
     station_theoretical_measurements: dict[str, list[float]] = {}
-    station_observations: dict[str, Expr] = {}
-    general_station_state_vector = station_state_vector(
-        parameter_expressions=arc_output.simulation_parameters.parameter_expressions
-    )
+    general_observation_expression = distance(
+        vector_1=station_state_vector(
+            parameter_expressions=arc_output.simulation_parameters.parameter_expressions
+        ),
+        vector_2=STATE_VECTOR_MATRIX,
+    ) + Symbol(r"\Delta r_{station}")
 
     for station_id, timestamps in observation_timestamps.items():
 
@@ -156,25 +215,20 @@ def generate_measurements(
             continue
 
         # Symbolic expression to differentiate later to produce dQ/dgamma and nabla Q.
-        station_observations[station_id] = distance(
-            vector_1=stations[station_id].apply_to_station(expression=general_station_state_vector),
-            vector_2=STATE_VECTOR_MATRIX,
-        ) + get_station_range(
-            parameter_expressions=arc_output.simulation_parameters.parameter_expressions,
-            station_id=station_id,
-        )
         station_theoretical_measurements[station_id] = interpolate_function_of_position(
-            expression=station_observations[station_id],
+            expression=stations[station_id].apply_to_station(
+                expression=general_observation_expression
+            ),
             arc_output=arc_output,
             observation_timestamps=observation_timestamps[station_id],
         )
 
-    return station_theoretical_measurements, station_observations
+    return station_theoretical_measurements, general_observation_expression
 
 
 def get_visibilities(
-    t: ndarray[float],
-    y: ndarray[float],
+    t: ndarray,
+    y: ndarray,
     stations: dict[str, Station],
     simulation_parameters: SimulationParameters,
 ) -> dict[str, list[float]]:
@@ -190,11 +244,14 @@ def get_visibilities(
         window_start = 0.0
         is_visible = False
 
-        for current_quadrature_time, state_vector in zip(t, y):
+        for i_time, (current_quadrature_time, state_vector) in enumerate(zip(t, y)):
 
-            if station.visibility(
-                state_vector=state_vector,
-                terminal_parameter_values=simulation_parameters.terminal_parameter_values,
+            if (
+                i_time > simulation_parameters.arc_parameters.lagrange_interpolation_order
+                and station.visibility(
+                    state_vector=state_vector,
+                    terminal_parameter_values=simulation_parameters.terminal_parameter_values,
+                )
             ):
 
                 if not is_visible:
@@ -220,12 +277,12 @@ def get_visibilities(
 
 
 def simulate_measurements(
-    t: ndarray[float],
-    y: ndarray[float],
+    t: ndarray,
+    y: ndarray,
     stations: dict[str, Station],
     simulation_parameters: SimulationParameters,
     output_path: Path = TEST_OUTPUT_PATH,
-) -> None:
+) -> dict[str, list[float]]:
     """
     Simulate a serie of measurements whenever the satellite is visible from a station.
     """
@@ -246,6 +303,8 @@ def simulate_measurements(
         simulation_parameters=simulation_parameters,
         output_path=output_path,
     )
+
+    return station_theoretical_measurements
 
 
 def save_measurements(
@@ -345,107 +404,33 @@ def compute_residuals(
     }
 
 
-class ArcOutput:
-    """
-    To be used for post-process or plot purposes.
-    """
-
-    simulation_parameters: SimulationParameters
-    t: ndarray[float]
-    y: ndarray[float]
-    observation_timestamps: dict[str, list[float]] = {}
-    simulated_measurements: dict[str, list[float]] = {}
-    residuals: dict[str, list[float]] = {}
-
-    def __init__(
-        self,
-        simulation_parameters: SimulationParameters,
-        t: ndarray[float],
-        y: ndarray[float],
-    ) -> None:
-
-        self.simulation_parameters = simulation_parameters
-        self.t = t
-        self.y = y
-
-    def update_observations(
-        self,
-        observation_timestamps: dict[str, list[float]],
-        theoretical_measurements: dict[str, list[float]],
-        real_measurements: dict[str, list[float]],
-    ) -> None:
-        """
-        Difference.
-        """
-
-        self.simulation_parameters.arc_parameters.is_initial = False
-        self.observation_timestamps = observation_timestamps
-        self.simulated_measurements = theoretical_measurements
-        self.residuals = compute_residuals(
-            theoretical_measurements=theoretical_measurements,
-            real_measurements=real_measurements,
-        )
-
-    def save(self, output_path: Path = TEST_OUTPUT_PATH, iteration: int = 0) -> None:
-        """
-        In (.JSON) file.
-        """
-
-        path = (
-            output_path.joinpath(self.simulation_parameters.arc_parameters.arc_id)
-            .joinpath(str(iteration))
-            .joinpath("arc_output")
-        )
-        path.mkdir(exist_ok=True, parents=True)
-        self.simulation_parameters.save(output_path=path)
-        save_base_model(
-            obj=self.t,
-            name="t",
-            path=path,
-        )
-        save_base_model(
-            obj=self.y,
-            name="y",
-            path=path,
-        )
-        save_measurements(
-            argument=str(iteration) + "/arc_output/simulated_measurements",
-            observation_timestamps=self.observation_timestamps,
-            station_theoretical_measurements=self.simulated_measurements,
-            simulation_parameters=self.simulation_parameters,
-        )
-        save_measurements(
-            argument=str(iteration) + "/arc_output/residuals",
-            observation_timestamps=self.observation_timestamps,
-            station_theoretical_measurements=self.residuals,
-            simulation_parameters=self.simulation_parameters,
-        )
-
-
 def load_arc_output(
-    output_path: Path = TEST_OUTPUT_PATH, arc_id: str = "test_arc_id", iteration: int = 0
+    output_path: Path = TEST_OUTPUT_PATH,
+    arc_id: str = "test_arc_id",
+    iteration: int = 0,
 ) -> ArcOutput:
     """
     Gets the numerical outputs of an arc for plot purposes.
     """
 
-    path = output_path.joinpath(arc_id).joinpath(str(iteration)).joinpath("arc_output")
+    iteration_string = str(iteration)
+    path = output_path.joinpath(arc_id).joinpath(iteration_string + "/arc_output")
     arc_output = ArcOutput(
         simulation_parameters=load_simulation_parameters(
             output_path=output_path,
             arc_id=arc_id,
-            name=str(iteration) + "/arc_output/simulation_parameters",
+            name=iteration_string + "/arc_output/simulation_parameters",
         ),
         t=array(object=load_base_model(name="t", path=path)),
         y=array(object=load_base_model(name="y", path=path)),
     )
     observation_timestamps, simulated_measurements = get_measurements(
         simulation_parameters=arc_output.simulation_parameters,
-        name=str(iteration) + "/arc_output/simulated_measurements",
+        name=iteration_string + "/arc_output/simulated_measurements",
     )
     _, residuals = get_measurements(
         simulation_parameters=arc_output.simulation_parameters,
-        name=str(iteration) + "/arc_output/residuals",
+        name=iteration_string + "/arc_output/residuals",
     )
     arc_output.observation_timestamps = observation_timestamps
     arc_output.simulated_measurements = simulated_measurements

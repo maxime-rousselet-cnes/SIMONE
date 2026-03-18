@@ -5,25 +5,19 @@ Solves the normal equations and extrapolates the resulting orbit iteratively.
 # TODO: Cumulates.
 
 from pathlib import Path
+from typing import Optional
 
-from numpy import array, concatenate, inf, matmul, mean, ndarray, pi, zeros_like
+from base_models import save_base_model
+from numpy import array, concatenate, inf, matmul, mean, ndarray, zeros_like
 from numpy.linalg import cholesky, inv
 
-from src.base_constants import (
-    DEFAULT_MAX_ITERATIONS,
-    DFAULT_CONVERGENCE_THRESHOLD,
-    TEST_OUTPUT_PATH,
-)
-from src.quadrature import propagate_partials_and_save, save_normal_equations
-from src.simulation_parameters import load_simulation_parameters
-from src.station import get_stations
-from src.test import TEST_ARC_PARAMETERS
-from src.utils import save_base_model
+from .base_constants import DEFAULT_MAX_ITERATIONS, DFAULT_CONVERGENCE_THRESHOLD, TEST_OUTPUT_PATH
+from .quadrature import propagate_partials_and_save, save_normal_equations
+from .simulation_parameters import load_simulation_parameters
+from .station import get_stations
 
 
-def solve_normal_equations(
-    n_matrix: ndarray[float], s_second_member: ndarray[float]
-) -> tuple[ndarray[float], ndarray[float]]:
+def solve_normal_equations(n_matrix: ndarray, s_second_member: ndarray) -> tuple[ndarray, ndarray]:
     """
     Uses the Cholesky method to invert the square system.
     """
@@ -47,15 +41,12 @@ def solve_normal_equations(
 
 
 def solve_iteratively_precise_orbit_determination(
+    arc_id: str,
+    parameters_initial_guess: Optional[dict[str, Optional[dict[str, float]]]] = None,
     output_path: Path = TEST_OUTPUT_PATH,
     station_file_name: str = "stations",
     simulation_parameters_file_name: str = "simulation_parameters",
-    arc_id: str = TEST_ARC_PARAMETERS.arc_id,
-    parameters_initial_guess: dict[str, float] = {
-        r"J_2": 9e-3,
-        r"\omega_{Earth\ rotation\ angular\ speed}": 2 * pi / 86100,
-    },
-) -> tuple[list[dict[str, float]], list[ndarray[float]]]:
+) -> tuple[list[dict[str, float]], list[ndarray]]:
     """
     Performs a loop on:
         - Forward simulation of the orbit and partial derivatives.
@@ -70,14 +61,30 @@ def solve_iteratively_precise_orbit_determination(
     simulation_parameters.arc_parameters.is_initial = False
     stations = get_stations(stations_path=output_path, station_file_name=station_file_name)
     simulation_parameters.update_for_stations(stations=stations)
-    observation_partials: dict[str, ndarray[float]]
+    observation_partials: dict[str, ndarray]
     mean_residuals_history = [inf]
     parameter_values_per_iterations: list[dict[str, float]] = [parameters_initial_guess]
-    correlations_per_iterations: list[ndarray[float]] = []
+    correlations_per_iterations: list[ndarray] = []
 
-    for parameter, initial_guess in parameters_initial_guess.items():
+    if parameters_initial_guess is None:
 
-        simulation_parameters.terminal_parameter_values[parameter] = initial_guess
+        parameters_initial_guess = {}
+
+    if "dynamic" not in parameters_initial_guess:
+
+        parameters_initial_guess |= {"dynamic": None}
+
+    if "station" not in parameters_initial_guess:
+
+        parameters_initial_guess |= {"station": None}
+
+    for initial_guesses in parameters_initial_guess.values():
+
+        if initial_guesses is not None:
+
+            for parameter, initial_guess in initial_guesses.items():
+
+                simulation_parameters.terminal_parameter_values[parameter] = initial_guess
 
     for iteration in range(DEFAULT_MAX_ITERATIONS):
 
@@ -86,8 +93,11 @@ def solve_iteratively_precise_orbit_determination(
         arc_output, observation_partials, all_parameters_to_invert = propagate_partials_and_save(
             stations=stations,
             simulation_parameters=simulation_parameters,
+            parameters_to_invert={
+                key: None if initial_guesses is None else list(initial_guesses.keys())
+                for key, initial_guesses in parameters_initial_guess.items()
+            },
             iteration=iteration,
-            parameters_to_invert=parameters_initial_guess.keys(),
         )
         mean_residuals = mean(abs(concatenate(list(arc_output.residuals.values()))))
 
@@ -120,8 +130,15 @@ def solve_iteratively_precise_orbit_determination(
 
         parameter_values_per_iterations += [
             {
-                parameter: simulation_parameters.terminal_parameter_values[parameter]
-                for parameter in parameters_initial_guess
+                key: (
+                    {}
+                    if initial_guesses is None
+                    else {
+                        parameter: simulation_parameters.terminal_parameter_values[parameter]
+                        for parameter in initial_guesses
+                    }
+                )
+                for key, initial_guesses in parameters_initial_guess.items()
             }
         ]
         correlations_per_iterations += [n_matrix_inverse]

@@ -7,16 +7,15 @@ from pathlib import Path
 from random import uniform
 from typing import Optional
 
-import numpy
-from numpy import arcsin, array, asin, dot, ndarray
+from numpy import arcsin, array, asin, cos, dot, ndarray, sin
 from numpy.linalg import norm
 from pandas import read_csv
-from sympy import Expr, Matrix, MutableDenseMatrix, Symbol, cos, sin
+from sympy import Expr, Matrix, MutableDenseMatrix, Symbol
 
 from .base_constants import EARTH_GROUND_MASK, EARTH_RADIUS, TEST_OUTPUT_PATH, degrees, radians
 from .dynamics import ecef_to_eci
 from .parameters import Parameters
-from .utils import rotation_matrix
+from .utils import ecef_position, rotation_matrix
 
 
 class StationPosition:
@@ -36,7 +35,7 @@ class StationPosition:
         earth_ground_mask: Optional[ndarray[bool]] = EARTH_GROUND_MASK,
     ) -> None:
 
-        if latitude and longitude:
+        if not (latitude is None or longitude is None):
 
             self.latitude = latitude
             self.longitude = longitude
@@ -81,9 +80,9 @@ class StationPosition:
         """
 
         return (
-            (EARTH_RADIUS * cos(radians(self.latitude)) * cos(radians(self.longitude))),
-            (EARTH_RADIUS * cos(radians(self.latitude)) * sin(radians(self.longitude))),
-            EARTH_RADIUS * sin(radians(self.latitude)),
+            (EARTH_RADIUS * cos(radians(angle=self.latitude)) * cos(radians(angle=self.longitude))),
+            (EARTH_RADIUS * cos(radians(angle=self.latitude)) * sin(radians(angle=self.longitude))),
+            EARTH_RADIUS * sin(radians(angle=self.latitude)),
         )
 
 
@@ -207,7 +206,7 @@ class Station(Parameters):
         }
 
     def visibility(
-        self, state_vector: ndarray[float], terminal_parameter_values: dict[str, float]
+        self, state_vector: ndarray, terminal_parameter_values: dict[str, float]
     ) -> bool:
         """
         Verifies numerically if a given satellite is visible from the station.
@@ -217,13 +216,13 @@ class Station(Parameters):
         r_station = array(
             object=[
                 (terminal_parameter_values[r"R_{Earth\ radius}"] + self.station_position.altitude)
-                * numpy.cos(self.station_position.latitude)
-                * numpy.cos(self.station_position.longitude),
+                * cos(radians(angle=self.station_position.latitude))
+                * cos(radians(angle=self.station_position.longitude)),
                 (terminal_parameter_values[r"R_{Earth\ radius}"] + self.station_position.altitude)
-                * numpy.cos(self.station_position.latitude)
-                * numpy.sin(self.station_position.longitude),
+                * cos(radians(angle=self.station_position.latitude))
+                * sin(radians(angle=self.station_position.longitude)),
                 (terminal_parameter_values[r"R_{Earth\ radius}"] + self.station_position.altitude)
-                * numpy.sin(self.station_position.latitude),
+                * sin(radians(angle=self.station_position.latitude)),
             ]
         )
         rho = state_vector[:3] - r_station
@@ -264,17 +263,11 @@ def station_state_vector(parameter_expressions: dict[str, Expr]) -> MutableDense
     station_northward_speed = Symbol(r"v^n_{station\ northward\ speed}")
     station_vertical_speed = Symbol(r"v^v_{station\ vertical\ speed}")
 
-    # Nominal ECEF position assuming spherical Earth.
-    r_ecef = MutableDenseMatrix(
-        [
-            (parameter_expressions[r"R_{Earth\ radius}"] + altitude)
-            * cos(latitude)
-            * cos(longitude),
-            (parameter_expressions[r"R_{Earth\ radius}"] + altitude)
-            * cos(latitude)
-            * sin(longitude),
-            (parameter_expressions[r"R_{Earth\ radius}"] + altitude) * sin(latitude),
-        ]
+    r_ecef = ecef_position(
+        latitude=latitude,
+        longitude=longitude,
+        altitude=altitude,
+        parameter_expressions=parameter_expressions,
     )
     enu_offset = MutableDenseMatrix(
         [
@@ -290,8 +283,8 @@ def station_state_vector(parameter_expressions: dict[str, Expr]) -> MutableDense
         [station_eastward_speed, station_northward_speed, station_vertical_speed]
     )
     enu_to_ecef = rotation_matrix(
-        angle=longitude, unit_vector=MutableDenseMatrix([0, 0, 1])
-    ) @ rotation_matrix(angle=latitude, unit_vector=MutableDenseMatrix([0, 1, 0]))
+        angle=radians(angle=longitude), unit_vector=MutableDenseMatrix([0, 0, 1])
+    ) @ rotation_matrix(angle=radians(angle=latitude), unit_vector=MutableDenseMatrix([0, 1, 0]))
     r_ecef_total = r_ecef + enu_to_ecef @ enu_offset
     v_ecef_local = Matrix(enu_to_ecef @ enu_velocity)
     r_eci = Matrix(ecef_to_eci(parameter_expressions=parameter_expressions) @ r_ecef_total)

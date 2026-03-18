@@ -9,6 +9,7 @@ Defines all plot functions for teaching purposes.
 from pathlib import Path
 from typing import Optional
 
+from base_models import evaluate_terminal_parameters
 from numpy import cos, cross, linspace, meshgrid, ndarray, pi, reshape, roll, sin, zeros
 from numpy.linalg import norm
 from plotly.graph_objects import Figure, Frame, Scatter3d, Surface
@@ -24,7 +25,6 @@ from .base_constants import (
 from .dynamics import ecef_to_eci, eci_to_ecef
 from .observation import ArcOutput, load_arc_output
 from .station import Station, get_stations
-from .utils import evaluate_terminal_parameters
 
 TRAJECTORY_COLOR = "purple"
 TRAJECTORY_LINE_WIDTH = 20
@@ -41,8 +41,8 @@ SPEED_UP_FACTOR = 10
 
 
 def elliptical_orbit_points(
-    y: ndarray[float], n_points: int = DEFAULT_ELLIPSE_NUMBER_OF_POINTS, mu: float = DEFAULT_MU
-) -> ndarray[float]:
+    y: ndarray, n_points: int = DEFAULT_ELLIPSE_NUMBER_OF_POINTS, mu: float = DEFAULT_MU
+) -> ndarray:
     """
     Computes a satellite's elliptical reference orbit in the inertial frame for a single timestep.
     """
@@ -67,7 +67,7 @@ def elliptical_orbit_points(
     return ellipse
 
 
-def rotate_columns(arr: ndarray[float], x: float) -> ndarray:
+def rotate_columns(arr: ndarray, x: float) -> ndarray:
     """
     Performs Earth rotation for the background Earth representation.
     """
@@ -120,8 +120,8 @@ class AnimationParameters:
     display_stations: bool = True
     display_ellipse: bool = True
     time_indices_for_range_measurements: dict[int, list[str]] = {}
-    satellite_positions: dict[str, ndarray[float]] = {}
-    station_positions: dict[str, list[ndarray[float]]] = {}
+    satellite_positions: dict[str, ndarray] = {}
+    station_positions: dict[str, list[ndarray]] = {}
 
     def display_arc_animation(self, arc_output: ArcOutput, stations: dict[str, Station]) -> None:
         """
@@ -182,7 +182,7 @@ class AnimationParameters:
             ]
         )
 
-        self.station_positions: dict[str, list[ndarray[float]]] = {}
+        self.station_positions: dict[str, list[ndarray]] = {}
 
         if self.display_range_measurements or self.display_stations:
 
@@ -271,7 +271,7 @@ class AnimationParameters:
 
     def generate_figure(
         self,
-        ellipses: Optional[ndarray[float]],
+        ellipses: Optional[ndarray],
         angle: float,
         time_index: int = 0,
     ) -> Figure:
@@ -290,7 +290,7 @@ class AnimationParameters:
                     z=ellipses[time_index][:, 2],
                     mode="lines",
                     line={"color": CLOSEST_ORBIT_COLOR, "width": CLOSEST_ORBIT_LINE_WIDTH},
-                    name="",
+                    showlegend=False,
                 )
             )
 
@@ -307,7 +307,7 @@ class AnimationParameters:
                 ],
                 mode="lines",
                 line={"color": TRAJECTORY_COLOR, "width": TRAJECTORY_LINE_WIDTH},
-                name="",
+                showlegend=False,
             )
         )
 
@@ -343,5 +343,6 @@ def plot_station(figure: Figure, station: Station) -> None:
             mode="markers",
             marker={"color": STATION_COLOR, "size": STATION_DOT_SIZE},
             name=station.name,
+            showlegend=False,
         )
     )

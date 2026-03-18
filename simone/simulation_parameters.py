@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from base_models import load_base_model, save_base_model
 from sympy import Expr, MutableDenseMatrix, Symbol, simplify, srepr
 
 from .base_constants import DATETIME_FORMAT, DEFAULT_TERMINAL_PARAMETER_VALUES, TEST_OUTPUT_PATH
@@ -17,7 +18,6 @@ from .test_forces import (
     parameterized_test_force,
     time_test_force,
 )
-from .utils import load_base_model, save_base_model
 
 ALL_FORCES = {
     "central_body_attraction": central_body_attraction,
@@ -98,7 +98,7 @@ class SimulationParameters:
     def update_terminal_parameter_values(self, new_expressions: dict[str, Expr]) -> None:
         """
         Updates the dictionary of terminal parameter values. Need to update the dictionary of
-        parameter expressions.
+        parameter expressions too.
         """
 
         self.terminal_parameter_values.update(new_expressions)

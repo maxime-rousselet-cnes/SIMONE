@@ -4,14 +4,13 @@ To avoid cyclical definition.
 
 from pathlib import Path
 
-import numpy
 from matplotlib.image import imread
-from numpy import flipud, ndarray, zeros_like
-from sympy import Expr, pi
+from numpy import flipud, ndarray, pi, zeros_like
+from sympy import Expr
 
-DEFAULT_MAX_ITERATIONS = 3
+DEFAULT_MAX_ITERATIONS = 5
 DFAULT_CONVERGENCE_THRESHOLD = 1e-2
-TEST_OUTPUT_PATH = Path("test")
+TEST_OUTPUT_PATH = Path("TESTS")
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 EARTH_IMAGE_NAME = "earth.jpg"
 EARTH_RADIUS = 6.371e6
@@ -34,12 +33,12 @@ DEFAULT_TERMINAL_PARAMETER_VALUES = {
     r"J_2": TEST_J2,
     r"a_{semi-major\ axis}": 7e6,
     r"e_{eccentricity}": 0.05,
-    r"i_{inclination}": 45.0,
+    r"i_{inclination}": 70.0,
     r"\Omega_{right\ ascension\ ascending\ node}": 45.0,
     r"\omega_{argument\ of\ periapsis}": 0.0,
     r"\nu_{true\ anomaly}": 0.0,
     r"\theta_{arc\ start\ Earth\ rotation\ angle}": 0.0,
-    r"\omega_{Earth\ rotation\ angular\ speed}": 2 * numpy.pi / 86164,
+    r"\omega_{Earth\ rotation\ angular\ speed}": 2 * pi / 86164,
 }
 
 
@@ -48,11 +47,7 @@ def radians(angle: float | Expr) -> float | Expr:
     Conversion.
     """
 
-    if isinstance(angle, Expr):
-
-        return pi / 180 * angle
-
-    return numpy.pi / 180 * angle
+    return pi / 180 * angle
 
 
 def degrees(angle: float | Expr) -> float | Expr:
@@ -60,8 +55,4 @@ def degrees(angle: float | Expr) -> float | Expr:
     Conversion.
     """
 
-    if isinstance(angle, Expr):
-
-        return 180 / pi * angle
-
-    return 180 / numpy.pi * angle
+    return 180 / pi * angle
