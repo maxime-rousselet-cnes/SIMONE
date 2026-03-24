@@ -68,20 +68,18 @@ def integrate_variation_equations(
             parameter_expressions=simulation_parameters.parameter_expressions,
             terminal_parameter_values=simulation_parameters.terminal_parameter_values,
         )
-        partial_numerical_values = array(
-            object=fixed_timestep_integrator(
-                fun=lambdify(
-                    args=[
-                        simulation_parameters.parameter_expressions[r"t"],
-                        STATE_VECTOR_LINE,
-                        partial_expressions,
-                    ],
-                    expr=flatten(variation_equations),
-                ),
-                t=arc_output.t,
-                y=arc_output.y,
-                i_parameter_initial_conditions=i_parameter,
-            )
+        partial_numerical_values = fixed_timestep_integrator(
+            fun=lambdify(
+                args=[
+                    simulation_parameters.parameter_expressions[r"t"],
+                    STATE_VECTOR_LINE,
+                    partial_expressions,
+                ],
+                expr=flatten(variation_equations),
+            ),
+            t=arc_output.t,
+            y=arc_output.y,
+            i_parameter_initial_conditions=i_parameter,
         )
         partials[str(parameter)] = (partial_expressions, partial_numerical_values)
 
