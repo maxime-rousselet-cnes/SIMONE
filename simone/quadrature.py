@@ -13,7 +13,7 @@ from base_models import (
     variation_equation,
     vector_variation_equation,
 )
-from numpy import array, concatenate, ndarray, zeros, zeros_like
+from numpy import concatenate, ndarray, zeros, zeros_like
 from sympy import Expr, MutableDenseMatrix, Symbol, flatten, lambdify, symbols
 from sympy.core.numbers import Zero
 

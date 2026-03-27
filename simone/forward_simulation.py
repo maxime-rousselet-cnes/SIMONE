@@ -29,7 +29,8 @@ def generate_numerically_initial_condition(
             ),
             parameter_expressions=simulation_parameters.parameter_expressions,
             terminal_parameter_values=simulation_parameters.terminal_parameter_values,
-        )
+        ),
+        dtype=float,
     ).flatten()
 
 
