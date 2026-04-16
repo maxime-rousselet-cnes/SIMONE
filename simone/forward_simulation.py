@@ -31,7 +31,24 @@ def generate_numerically_initial_condition(
             terminal_parameter_values=simulation_parameters.terminal_parameter_values,
         ),
         dtype=float,
-    ).flatten()
+    ).flatten() + (
+        array(
+            object=[  # To understand as a correction on initial conditions.
+                simulation_parameters.terminal_parameter_values[parameter]
+                for parameter in [
+                    r"x_0",
+                    r"y_0",
+                    r"z_0",
+                    r"\dot{x}_0",
+                    r"\dot{y}_0",
+                    r"\dot{z}_0",
+                ]
+            ],
+            dtype=float,
+        )
+        if r"x_0" in simulation_parameters.terminal_parameter_values
+        else 0
+    )
 
 
 def propagate_ephemeris(

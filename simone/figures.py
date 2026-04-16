@@ -2,9 +2,9 @@
 Defines all plot functions for teaching purposes.
 """
 
-# TODO: Range shown the two frames around the observation timestep.
-# TODO: Point.
 # TODO: Automate correlation plots.
+# TODO: Range shown the two frames around the observation timestep.
+# TODO: Use plot_station function.
 
 from pathlib import Path
 from typing import Optional
@@ -16,11 +16,15 @@ from plotly.graph_objects import Figure, Frame, Scatter3d, Surface
 
 from .base_constants import (
     DEFAULT_MU,
+    DEFAULT_RESIDUALS_FILE_NAME,
+    DEFAULT_SIMULATED_MEASUREMENTS_FILE_NAME,
+    DEFAULT_STATIONS_FILE_NAME,
     EARTH_COLOR_SCALE,
     EARTH_RADIUS,
     EARTH_SURFACE_COLOR,
     GRAY_EARTH_IMAGE,
-    TEST_OUTPUT_PATH,
+    TEST_ARC_ID,
+    TEST_NO_ITERATIONS_PATH,
 )
 from .dynamics import ecef_to_eci, eci_to_ecef
 from .observation import ArcOutput, load_arc_output
@@ -315,17 +319,24 @@ class AnimationParameters:
 
 
 def display_test_animation(
-    output_path: Path = TEST_OUTPUT_PATH,
-    station_file_name: str = "stations",
-    arc_id: str = "test_arc_id",
+    arc_path: Path = TEST_NO_ITERATIONS_PATH,
+    station_file_name: str = DEFAULT_STATIONS_FILE_NAME,
+    arc_id: str = TEST_ARC_ID,
+    simulated_measurements_file_name: str = DEFAULT_SIMULATED_MEASUREMENTS_FILE_NAME,
+    residuals_file_name: str = DEFAULT_RESIDUALS_FILE_NAME,
 ) -> None:
     """
     Displays the test arc with all options.
     """
 
     AnimationParameters().display_arc_animation(
-        arc_output=load_arc_output(output_path=output_path, arc_id=arc_id),
-        stations=get_stations(stations_path=output_path, station_file_name=station_file_name),
+        arc_output=load_arc_output(
+            iteration_path=arc_path,
+            arc_id=arc_id,
+            simulated_measurements_file_name=simulated_measurements_file_name,
+            residuals_file_name=residuals_file_name,
+        ),
+        stations=get_stations(path=arc_path.parent, station_file_name=station_file_name),
     )
 
 

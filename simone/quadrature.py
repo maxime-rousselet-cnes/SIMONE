@@ -13,11 +13,15 @@ from base_models import (
     variation_equation,
     vector_variation_equation,
 )
-from numpy import concatenate, ndarray, zeros, zeros_like
+from numpy import array, concatenate, ndarray, zeros, zeros_like
 from sympy import Expr, MutableDenseMatrix, Symbol, flatten, lambdify, symbols
 from sympy.core.numbers import Zero
 
-from .base_constants import TEST_OUTPUT_PATH
+from .base_constants import (
+    DEFAULT_MEASUREMENT_DIRECTORY_NAME,
+    STATE_PARAMETERS,
+    TEST_NO_ITERATIONS_PATH,
+)
 from .forward_simulation import propagate_ephemeris
 from .observation import (
     ArcOutput,
@@ -41,14 +45,14 @@ def integrate_variation_equations(
     invertible parameter.
     """
 
-    parameters_to_invert: list[Expr] = list(
-        symbols(r"x_0 y_0 z_0 \dot{x}_0 \dot{y}_0 \dot{z}_0")
-    ) + (
+    parameters_to_invert: list[Expr] = list(symbols(STATE_PARAMETERS)) + (
         []
         if not parameters_to_invert
         else [
             simulation_parameters.parameter_expressions[parameter]
             for parameter in parameters_to_invert
+            # To be robust to inconsistent entries.
+            if parameter in simulation_parameters.parameter_expressions
         ]
     )
     partials: dict[str, tuple[list[Expr], ndarray]] = {}
@@ -139,24 +143,40 @@ def integrate_observation_partials(
     return obsevation_partials
 
 
+def build_normal_equations(
+    observation_partials: dict[str, ndarray], arc_output: ArcOutput
+) -> tuple[ndarray, ndarray]:
+    """
+    Builds the rectangular normal equations for the given arc. Matrix A is
+    (n_observations, n_parameters) and B is (n_observations, 1).
+    """
+
+    return (
+        array(object=list(observation_partials.values()), dtype=float).T,
+        concatenate([array(object=tab, dtype=float) for tab in arc_output.residuals.values()])[
+            :, None
+        ],
+    )
+
+
 def save_normal_equations(
-    n_matrix: ndarray,
-    s_second_member: ndarray,
+    # A, B, station ID per observation, parameters to invert.
+    products: tuple[ndarray, ndarray, list[str], dict[str, Optional[list[str]]]],
     simulation_parameters: SimulationParameters,
-    iteration: int = 0,
-    output_path: Path = TEST_OUTPUT_PATH,
+    output_path: Path = TEST_NO_ITERATIONS_PATH,
 ) -> Path:
     """
     Saves normal equations in the previous iteration's folder.
     """
 
-    path = (
-        output_path.joinpath(simulation_parameters.arc_parameters.arc_id)
-        .joinpath(str(iteration))
-        .joinpath("normal_equations")
+    a_matrix, b_second_member, station_id_per_observation, parameters_to_invert = products
+    path = output_path.joinpath(simulation_parameters.arc_parameters.arc_id).joinpath(
+        "normal_equations"
     )
-    save_base_model(obj=n_matrix, name="n_matrix", path=path)
-    save_base_model(obj=s_second_member, name="s_second_member", path=path)
+    save_base_model(obj=a_matrix.tolist(), name="a_matrix", path=path)
+    save_base_model(obj=b_second_member.tolist(), name="b_second_member", path=path)
+    save_base_model(obj=station_id_per_observation, name="station_id_per_observation", path=path)
+    save_base_model(obj=parameters_to_invert, name="parameters", path=path)
 
     return path
 
@@ -192,9 +212,9 @@ def propagate_partials_and_save(
     stations: dict[str, Station],
     simulation_parameters: SimulationParameters,
     parameters_to_invert: dict[str, Optional[list[str]]],
-    iteration: int = 0,
-    output_path: Path = TEST_OUTPUT_PATH,
-) -> tuple[ArcOutput, dict[str, ndarray], list[str]]:
+    path: Path = TEST_NO_ITERATIONS_PATH,
+    measurements_directory_name: str = DEFAULT_MEASUREMENT_DIRECTORY_NAME,
+) -> tuple[ArcOutput, dict[str, ndarray], dict[str, Optional[list[str]]], list[str]]:
     """
     Performs a forward simulation including partial derivatives computing that allows to build the A
     matrix. Also saves the arc output.
@@ -204,7 +224,8 @@ def propagate_partials_and_save(
         simulation_parameters=simulation_parameters,
     )
     observation_timestamps, real_measurement_values = get_measurements(
-        simulation_parameters=simulation_parameters
+        path=path.parent.joinpath(measurements_directory_name),
+        name=simulation_parameters.arc_parameters.arc_id,
     )
     arc_output = ArcOutput(simulation_parameters=simulation_parameters, t=t, y=y)
     theoretical_measurement_values, measurement_expression = generate_measurements(
@@ -217,7 +238,7 @@ def propagate_partials_and_save(
         theoretical_measurements=theoretical_measurement_values,
         real_measurements=real_measurement_values,
     )
-    arc_output.save(output_path=output_path, iteration=iteration)
+    arc_output.save(output_path=path)
     partials, parameters_to_invert["dynamic"] = integrate_variation_equations(
         arc_output=arc_output,
         simulation_parameters=simulation_parameters,
@@ -237,5 +258,12 @@ def propagate_partials_and_save(
             measurement_expression=measurement_expression,
             observation_timestamps=observation_timestamps,
         ),
-        parameters_to_invert["dynamic"],
+        parameters_to_invert,
+        sum(
+            (
+                [station_id] * len(timestamps)
+                for station_id, timestamps in observation_timestamps.items()
+            ),
+            start=[],
+        ),
     )

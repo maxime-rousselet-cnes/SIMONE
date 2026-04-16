@@ -124,7 +124,6 @@ class TimeTestForceParameters(Parameters):
         time-dependent parameter.
         """
 
-        # TODO: Has the string to be consistent with variable name?
         return {"time_dependent_parameter": self.time_dependent_parameter.to_serializable()}
 
 

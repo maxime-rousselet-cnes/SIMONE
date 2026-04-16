@@ -9,7 +9,12 @@ from typing import Optional
 from base_models import load_base_model, save_base_model
 from sympy import Expr, MutableDenseMatrix, Symbol, simplify, srepr
 
-from .base_constants import DATETIME_FORMAT, DEFAULT_TERMINAL_PARAMETER_VALUES, TEST_OUTPUT_PATH
+from .base_constants import (
+    DATETIME_FORMAT,
+    DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
+    DEFAULT_TERMINAL_PARAMETER_VALUES,
+    TEST_NO_ITERATIONS_PATH,
+)
 from .gravitational_forces import central_body_attraction, j2_attraction
 from .parameters import ArcParameters, Parameters
 from .test_forces import (
@@ -115,7 +120,9 @@ class SimulationParameters:
             self.update_terminal_parameter_values(new_expressions=station.get_terminal_parameters())
 
     def save(
-        self, output_path: Path = TEST_OUTPUT_PATH, name: str = "simulation_parameters"
+        self,
+        path: Path = TEST_NO_ITERATIONS_PATH,
+        name: str = DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
     ) -> None:
         """
         Saves in (.JSON) file.
@@ -149,20 +156,19 @@ class SimulationParameters:
                 "terminal_parameter_values": self.terminal_parameter_values,
             },
             name=name,
-            path=output_path,
+            path=path,
         )
 
 
 def load_simulation_parameters(
-    output_path: Path = TEST_OUTPUT_PATH,
-    arc_id: str = "test_arc_id",
-    name: str = "simulation_parameters",
+    path: Path = TEST_NO_ITERATIONS_PATH,
+    name: str = DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
 ) -> SimulationParameters:
     """
     From (.JSON) file.
     """
 
-    loaded_dict = load_base_model(name=name + ".json", path=output_path.joinpath(arc_id))
+    loaded_dict = load_base_model(name=name + ".json", path=path)
     simulated_forces: dict = loaded_dict["simulated_forces"]
 
     return SimulationParameters(

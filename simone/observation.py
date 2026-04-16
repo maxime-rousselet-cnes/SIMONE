@@ -12,10 +12,58 @@ from numpy.random import normal
 from pandas import DataFrame, read_csv
 from sympy import Expr, Symbol
 
-from .base_constants import TEST_OUTPUT_PATH
+from .base_constants import (
+    DEFAULT_MEASUREMENT_DIRECTORY_NAME,
+    DEFAULT_RESIDUALS_FILE_NAME,
+    DEFAULT_SIMULATED_MEASUREMENTS_FILE_NAME,
+    DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
+    TEST_ARC_ID,
+    TEST_MEASUREMENTS_PATH,
+    TEST_NO_ITERATIONS_PATH,
+)
 from .simulation_parameters import SimulationParameters, load_simulation_parameters
 from .station import Station, station_state_vector
 from .utils import STATE_VECTOR_LINE, STATE_VECTOR_MATRIX, distance
+
+
+def save_measurements(
+    observation_timestamps: dict[str, list[float]],
+    measurements: dict[str, list[float]],
+    stations: Optional[dict[str, Station]] = None,
+    path: Path = TEST_MEASUREMENTS_PATH,
+    file_name: str = DEFAULT_RESIDUALS_FILE_NAME,
+) -> None:
+    """
+    Writes a line per measurement in a (.CSV) file.
+    In case stations are provided, adds a noise to the measurements according to the station
+    parameters.
+    """
+
+    station_ids, timestamps, values = [], [], []
+
+    for station_id, measurement_list in measurements.items():
+
+        station_ids += len(observation_timestamps[station_id]) * [station_id]
+        timestamps += observation_timestamps[station_id]
+        values += list(
+            array(object=measurement_list, dtype=float)
+            + (
+                0
+                if stations is None
+                else normal(
+                    loc=0,
+                    # Adds a noise for simulations initially generated simulations.
+                    scale=stations[station_id].station_simulation.sigma_noise,
+                    size=len(observation_timestamps[station_id]),
+                )
+            )
+        )
+
+    path.mkdir(exist_ok=True, parents=True)
+    DataFrame(data={"station_id": station_ids, "timestamp": timestamps, "value": values}).to_csv(
+        path_or_buf=path.joinpath(file_name + ".csv"),
+        index=False,
+    )
 
 
 class ArcOutput:
@@ -59,18 +107,22 @@ class ArcOutput:
             real_measurements=real_measurements,
         )
 
-    def save(self, output_path: Path = TEST_OUTPUT_PATH, iteration: int = 0) -> None:
+    def save(
+        self,
+        output_path: Path = TEST_NO_ITERATIONS_PATH,
+        simulated_measurements_file_name: str = DEFAULT_SIMULATED_MEASUREMENTS_FILE_NAME,
+        residuals_file_name: str = DEFAULT_RESIDUALS_FILE_NAME,
+        simulation_parameters_file_name: str = DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
+    ) -> None:
         """
         In (.JSON) file.
         """
 
-        path = (
-            output_path.joinpath(self.simulation_parameters.arc_parameters.arc_id)
-            .joinpath(str(iteration))
-            .joinpath("arc_output")
+        path = output_path.joinpath(self.simulation_parameters.arc_parameters.arc_id).joinpath(
+            "arc_output"
         )
         path.mkdir(exist_ok=True, parents=True)
-        self.simulation_parameters.save(output_path=path)
+        self.simulation_parameters.save(path=path)
         save_base_model(
             obj=self.t,
             name="t",
@@ -82,17 +134,18 @@ class ArcOutput:
             path=path,
         )
         save_measurements(
-            argument=str(iteration) + "/arc_output/simulated_measurements",
             observation_timestamps=self.observation_timestamps,
-            station_theoretical_measurements=self.simulated_measurements,
-            simulation_parameters=self.simulation_parameters,
+            measurements=self.simulated_measurements,
+            path=path,
+            file_name=simulated_measurements_file_name,
         )
         save_measurements(
-            argument=str(iteration) + "/arc_output/residuals",
             observation_timestamps=self.observation_timestamps,
-            station_theoretical_measurements=self.residuals,
-            simulation_parameters=self.simulation_parameters,
+            measurements=self.residuals,
+            path=path,
+            file_name=residuals_file_name,
         )
+        self.simulation_parameters.save(path=path, name=simulation_parameters_file_name)
 
 
 def apply_lagrange_kernel(
@@ -281,7 +334,7 @@ def simulate_measurements(
     y: ndarray,
     stations: dict[str, Station],
     simulation_parameters: SimulationParameters,
-    output_path: Path = TEST_OUTPUT_PATH,
+    path: Path = TEST_NO_ITERATIONS_PATH,
 ) -> dict[str, list[float]]:
     """
     Simulate a serie of measurements whenever the satellite is visible from a station.
@@ -291,75 +344,24 @@ def simulate_measurements(
         t=t, y=y, stations=stations, simulation_parameters=simulation_parameters
     )
     arc_output = ArcOutput(simulation_parameters=simulation_parameters, t=t, y=y)
-    station_theoretical_measurements, _ = generate_measurements(
+    measurements, _ = generate_measurements(
         arc_output=arc_output,
         stations=stations,
         observation_timestamps=observation_timestamps,
     )
     save_measurements(
-        argument=stations,
         observation_timestamps=observation_timestamps,
-        station_theoretical_measurements=station_theoretical_measurements,
-        simulation_parameters=simulation_parameters,
-        output_path=output_path,
+        measurements=measurements,
+        stations=stations if simulation_parameters.arc_parameters.is_initial else None,
+        path=path.joinpath(DEFAULT_MEASUREMENT_DIRECTORY_NAME),
+        file_name=simulation_parameters.arc_parameters.arc_id,
     )
 
-    return station_theoretical_measurements
-
-
-def save_measurements(
-    observation_timestamps: dict[str, list[float]],
-    station_theoretical_measurements: dict[str, list[float]],
-    simulation_parameters: SimulationParameters,
-    argument: dict[str, Station] | str = "measurements",
-    output_path: Path = TEST_OUTPUT_PATH,
-) -> None:
-    """
-    Writes a line per measurement in a (.CSV) file.
-    """
-
-    if isinstance(argument, str):
-
-        stations: dict[str, Station] = {}
-        simulation_parameters.arc_parameters.is_initial = False
-
-    else:
-
-        stations = argument
-        argument = "measurements"
-
-    station_ids, timestamps, values = [], [], []
-
-    for station_id, measurements in station_theoretical_measurements.items():
-
-        station_ids += len(observation_timestamps[station_id]) * [station_id]
-        timestamps += observation_timestamps[station_id]
-        values += list(
-            array(object=measurements, dtype=float)
-            + (
-                0
-                if not simulation_parameters.arc_parameters.is_initial
-                else normal(
-                    loc=0,
-                    # Adds a noise for simulations initially generated simulations.
-                    scale=stations[station_id].station_simulation.sigma_noise,
-                    size=len(observation_timestamps[station_id]),
-                )
-            )
-        )
-
-    save_path = output_path.joinpath(simulation_parameters.arc_parameters.arc_id)
-    save_path.mkdir(exist_ok=True, parents=True)
-    DataFrame(data={"station_id": station_ids, "timestamp": timestamps, "value": values}).to_csv(
-        path_or_buf=save_path.joinpath(argument + ".csv"),
-        index=False,
-    )
+    return measurements
 
 
 def get_measurements(
-    simulation_parameters: SimulationParameters,
-    measurements_path: Path = TEST_OUTPUT_PATH,
-    name: str = "measurements",
+    path: Path, name: str = DEFAULT_RESIDUALS_FILE_NAME
 ) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
     """
     Gets measurement timestamps and values per station from (.CSV) file.
@@ -367,11 +369,7 @@ def get_measurements(
 
     observation_timestamps: dict[str, list[float]] = {}
     measurement_values: dict[str, list[float]] = {}
-    dataframe = read_csv(
-        filepath_or_buffer=measurements_path.joinpath(
-            simulation_parameters.arc_parameters.arc_id
-        ).joinpath(name + ".csv")
-    )
+    dataframe = read_csv(filepath_or_buffer=path.joinpath(name + ".csv"))
 
     for station_id, timestamp, value in zip(
         dataframe["station_id"].to_list(),
@@ -405,33 +403,26 @@ def compute_residuals(
 
 
 def load_arc_output(
-    output_path: Path = TEST_OUTPUT_PATH,
-    arc_id: str = "test_arc_id",
-    iteration: int = 0,
+    iteration_path: Path = TEST_NO_ITERATIONS_PATH,
+    arc_id: str = TEST_ARC_ID,
+    simulated_measurements_file_name: str = DEFAULT_SIMULATED_MEASUREMENTS_FILE_NAME,
+    residuals_file_name: str = DEFAULT_RESIDUALS_FILE_NAME,
+    simulation_parameters_file_name: str = DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
 ) -> ArcOutput:
     """
     Gets the numerical outputs of an arc for plot purposes.
     """
 
-    iteration_string = str(iteration)
-    path = output_path.joinpath(arc_id).joinpath(iteration_string + "/arc_output")
+    path = iteration_path.joinpath(arc_id).joinpath("arc_output")
     arc_output = ArcOutput(
         simulation_parameters=load_simulation_parameters(
-            output_path=output_path,
-            arc_id=arc_id,
-            name=iteration_string + "/arc_output/simulation_parameters",
+            path=path, name=simulation_parameters_file_name
         ),
         t=array(object=load_base_model(name="t", path=path)),
         y=array(object=load_base_model(name="y", path=path)),
     )
-    observation_timestamps, simulated_measurements = get_measurements(
-        simulation_parameters=arc_output.simulation_parameters,
-        name=iteration_string + "/arc_output/simulated_measurements",
-    )
-    _, residuals = get_measurements(
-        simulation_parameters=arc_output.simulation_parameters,
-        name=iteration_string + "/arc_output/residuals",
-    )
+    observation_timestamps, residuals = get_measurements(path=path, name=residuals_file_name)
+    _, simulated_measurements = get_measurements(path=path, name=simulated_measurements_file_name)
     arc_output.observation_timestamps = observation_timestamps
     arc_output.simulated_measurements = simulated_measurements
     arc_output.residuals = residuals

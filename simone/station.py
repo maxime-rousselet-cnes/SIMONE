@@ -12,7 +12,14 @@ from numpy.linalg import norm
 from pandas import read_csv
 from sympy import Expr, Matrix, MutableDenseMatrix, Symbol
 
-from .base_constants import EARTH_GROUND_MASK, EARTH_RADIUS, TEST_OUTPUT_PATH, degrees, radians
+from .base_constants import (
+    DEFAULT_STATIONS_FILE_NAME,
+    EARTH_GROUND_MASK,
+    EARTH_RADIUS,
+    TEST_OUTPUT_PATH,
+    degrees,
+    radians,
+)
 from .dynamics import ecef_to_eci
 from .parameters import Parameters
 from .utils import ecef_position, rotation_matrix
@@ -302,14 +309,14 @@ def station_state_vector(parameter_expressions: dict[str, Expr]) -> MutableDense
 
 
 def get_stations(
-    stations_path: Path = TEST_OUTPUT_PATH, station_file_name: str = "stations"
+    path: Path = TEST_OUTPUT_PATH, station_file_name: str = DEFAULT_STATIONS_FILE_NAME
 ) -> dict[str, Station]:
     """
     Reads a (.CSV) file to get all station informations.
     """
 
     stations = {}
-    dataframe = read_csv(filepath_or_buffer=stations_path.joinpath(station_file_name + ".csv"))
+    dataframe = read_csv(filepath_or_buffer=path.joinpath(station_file_name + ".csv"))
 
     for (
         station_id,

@@ -2,20 +2,25 @@
 All base functionalities. To test via pytest test.py.
 """
 
-# TODO: Test function that retrieves dummy parameter.
-# TODO: Test function that cumulates the dummy parameter over 2 arcs.
-
+from copy import deepcopy
 from datetime import datetime, timedelta
+from os import remove
 from pathlib import Path
 from shutil import rmtree
 from typing import Optional
 
-from base_models import save_base_model
-from numpy import arange, array, concatenate, matmul, mean, ndarray
+from numpy import arange, array, mean, ndarray
 from pandas import DataFrame
 from sympy import Symbol
 
 from simone import (
+    DEFAULT_MEASUREMENT_DIRECTORY_NAME,
+    DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
+    DEFAULT_STATIONS_FILE_NAME,
+    STATE_PARAMETERS,
+    TEST_ARC_ID,
+    TEST_INVERSION_PATH,
+    TEST_NO_ITERATIONS_PATH,
     TEST_OUTPUT_PATH,
     ArcOutput,
     ArcParameters,
@@ -34,14 +39,14 @@ from simone import (
     load_arc_output,
     load_simulation_parameters,
     propagate_ephemeris,
-    propagate_partials_and_save,
-    save_normal_equations,
+    run_single_arc,
     simulate_measurements,
+    solve_precise_orbit_determination,
 )
 
 TEST_STATION_QUANTITY = 100
 TEST_SIGMA_SAFETY_FACTOR = 10
-TEST_ARC_LENGTH = 10000.0
+TEST_ARC_LENGTH = 5000.0  # 10000.0
 TEST_TIME_STEP = 30.0
 TEST_TIME_STEP_FOR_TEST_TIME_PARAMETER = 1000.0
 TEST_ARC_START_DATETIME = datetime(
@@ -52,7 +57,7 @@ TEST_ARC_PARAMETERS = ArcParameters(
     arc_start_datetime=TEST_ARC_START_DATETIME,
     arc_length=TEST_ARC_LENGTH,
     lagrange_interpolation_order=4,
-    arc_id="test_arc_id",
+    arc_id=TEST_ARC_ID,
     is_initial=True,
 )
 TIME_TEST_FORCE_PARAMETER_FACTOR = 1e-5
@@ -88,19 +93,19 @@ TEST_SIMULATED_FORCES: dict[str, Optional[Parameters]] = {
 NUMERICAL_TOLERANCE = 1e-9
 
 
-def test_clear_test_folder(output_path: Path = TEST_OUTPUT_PATH) -> None:
+def test_clear_test_folder(path: Path = TEST_OUTPUT_PATH) -> None:
     """
     Deletes the test folder before all tests.
     """
 
-    if output_path.exists():
+    if path.exists():
 
-        rmtree(output_path)
+        rmtree(path)
 
 
 def test_generate_simulation_parameters(
-    output_path: Path = TEST_OUTPUT_PATH,
-    simulation_parameters_file_name: str = "simulation_parameters",
+    path: Path = TEST_NO_ITERATIONS_PATH,
+    simulation_parameters_file_name: str = DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
 ) -> None:
     """
     Generates simulation parameters and save in (.JSON) file to be loaded by other test functions.
@@ -110,23 +115,19 @@ def test_generate_simulation_parameters(
         arc_parameters=TEST_ARC_PARAMETERS,
         simulated_forces=TEST_SIMULATED_FORCES,
     ).save(
-        output_path=output_path.joinpath(TEST_ARC_PARAMETERS.arc_id),
+        path=path,
         name=simulation_parameters_file_name,
     )
-    assert (
-        output_path.joinpath(TEST_ARC_PARAMETERS.arc_id)
-        .joinpath(simulation_parameters_file_name + ".json")
-        .exists()
-    )
+    assert path.joinpath(simulation_parameters_file_name + ".json").exists()
 
 
 def test_generate_stations(
     output_path: Path = TEST_OUTPUT_PATH,
-    station_file_name: str = "stations",
-    arc_id: str = TEST_ARC_PARAMETERS.arc_id,
-    simulation_parameters_file_name: str = "simulation_parameters",
+    station_file_name: str = DEFAULT_STATIONS_FILE_NAME,
     # Ensures a virtual station at least has the satellite in visibility at the arc's beginning.
     deterministic_station: bool = True,
+    simulation_parameters_path: Path = TEST_NO_ITERATIONS_PATH,
+    simulation_parameters_file_name: str = DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
 ) -> None:
     """
     Generates on-continents virtual stations for simulation/test purposes and saves a corresponding
@@ -157,8 +158,7 @@ def test_generate_stations(
 
         y_0 = generate_numerically_initial_condition(
             simulation_parameters=load_simulation_parameters(
-                output_path=output_path,
-                arc_id=arc_id,
+                path=simulation_parameters_path,
                 name=simulation_parameters_file_name,
             )
         )
@@ -195,19 +195,18 @@ def test_generate_stations(
 
 
 def test_forward_simulation(
-    output_path: Path = TEST_OUTPUT_PATH,
-    station_file_name: str = "stations",
-    arc_id: str = TEST_ARC_PARAMETERS.arc_id,
-    simulation_parameters_file_name: str = "simulation_parameters",
+    stations_path: Path = TEST_OUTPUT_PATH,
+    station_file_name: str = DEFAULT_STATIONS_FILE_NAME,
+    simulation_parameters_path: Path = TEST_NO_ITERATIONS_PATH,
+    simulation_parameters_file_name: str = DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
 ) -> None:
     """
     Checks if the forward simulation of orbit determination runs for dummy forces.
     """
 
-    stations = get_stations(stations_path=output_path, station_file_name=station_file_name)
+    stations = get_stations(path=stations_path, station_file_name=station_file_name)
     simulation_parameters = load_simulation_parameters(
-        output_path=output_path,
-        arc_id=arc_id,
+        path=simulation_parameters_path,
         name=simulation_parameters_file_name,
     )
     simulation_parameters.update_for_stations(stations=stations)
@@ -218,62 +217,89 @@ def test_forward_simulation(
     assert len(y) == len(t)
 
 
-def test_observations(
-    output_path: Path = TEST_OUTPUT_PATH,
-    station_file_name: str = "stations",
-    arc_id: str = TEST_ARC_PARAMETERS.arc_id,
-    simulation_parameters_file_name: str = "simulation_parameters",
-) -> None:
+def simulate_observations(
+    stations_path: Path = TEST_OUTPUT_PATH,
+    save_path: Path = TEST_OUTPUT_PATH,
+    station_file_name: str = DEFAULT_STATIONS_FILE_NAME,
+    simulation_parameters_path: Path = TEST_NO_ITERATIONS_PATH,
+    simulation_parameters_file_name: str = DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
+) -> tuple[SimulationParameters, dict[str, list[float]], Path, ndarray]:
     """
     Verifies if the measurements are correctly created in a forward simulation.
     """
 
-    stations = get_stations(stations_path=output_path, station_file_name=station_file_name)
+    stations = get_stations(path=stations_path, station_file_name=station_file_name)
     simulation_parameters = load_simulation_parameters(
-        output_path=output_path,
-        arc_id=arc_id,
+        path=simulation_parameters_path,
         name=simulation_parameters_file_name,
     )
     simulation_parameters.update_for_stations(stations=stations)
     t, y, _ = propagate_ephemeris(
         simulation_parameters=simulation_parameters,
     )
-    path = output_path.joinpath(simulation_parameters.arc_parameters.arc_id).joinpath(
-        "measurements.csv"
+    path = save_path.joinpath(DEFAULT_MEASUREMENT_DIRECTORY_NAME).joinpath(
+        simulation_parameters.arc_parameters.arc_id + ".csv"
     )
 
     if path.exists():
 
-        rmtree(path)
+        remove(path)
 
     station_theoretical_measurements = simulate_measurements(
-        t=t, y=y, stations=stations, simulation_parameters=simulation_parameters
+        t=t,
+        y=y,
+        stations=stations,
+        simulation_parameters=simulation_parameters,
+        path=save_path,
     )
 
+    return simulation_parameters, station_theoretical_measurements, path, y
+
+
+def test_observations(
+    stations_path: Path = TEST_OUTPUT_PATH,
+    save_path: Path = TEST_OUTPUT_PATH,
+    station_file_name: str = DEFAULT_STATIONS_FILE_NAME,
+    simulation_parameters_path: Path = TEST_NO_ITERATIONS_PATH,
+    simulation_parameters_file_name: str = DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
+) -> SimulationParameters:
+    """
+    Verifies if the measurements are correctly created in a forward simulation.
+    """
+
+    _, station_theoretical_measurements, path, _ = simulate_observations(
+        stations_path=stations_path,
+        save_path=save_path,
+        station_file_name=station_file_name,
+        simulation_parameters_path=simulation_parameters_path,
+        simulation_parameters_file_name=simulation_parameters_file_name,
+    )
     assert len(station_theoretical_measurements) > 0
     assert path.exists()
 
 
 def test_arc_output(
-    output_path: Path = TEST_OUTPUT_PATH,
-    station_file_name: str = "stations",
-    arc_id: str = TEST_ARC_PARAMETERS.arc_id,
-    simulation_parameters_file_name: str = "simulation_parameters",
+    station_file_name: str = DEFAULT_STATIONS_FILE_NAME,
+    simulation_parameters_path: Path = TEST_NO_ITERATIONS_PATH,
+    simulation_parameters_file_name: str = DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
+    measurements_directory_name: Path = DEFAULT_MEASUREMENT_DIRECTORY_NAME,
 ) -> None:
     """
     Verifies if the measurements are correctly created in a forward simulation.
     """
 
-    stations = get_stations(stations_path=output_path, station_file_name=station_file_name)
+    stations = get_stations(
+        path=simulation_parameters_path.parent, station_file_name=station_file_name
+    )
     simulation_parameters = load_simulation_parameters(
-        output_path=output_path,
-        arc_id=arc_id,
+        path=simulation_parameters_path,
         name=simulation_parameters_file_name,
     )
     simulation_parameters.update_for_stations(stations=stations)
     simulation_parameters.arc_parameters.is_initial = False
     saved_observation_timestamps, saved_measurement_values = get_measurements(
-        simulation_parameters=simulation_parameters
+        path=simulation_parameters_path.parent.joinpath(measurements_directory_name),
+        name=simulation_parameters.arc_parameters.arc_id,
     )
     t, y, _ = propagate_ephemeris(
         simulation_parameters=simulation_parameters,
@@ -291,8 +317,15 @@ def test_arc_output(
         theoretical_measurements=re_computed_measurement_values,
         real_measurements=saved_measurement_values,
     )
-    arc_output.save(output_path=output_path)
-    arc_output_verification = load_arc_output(output_path=output_path, arc_id=arc_id)
+    arc_output.save(
+        output_path=simulation_parameters_path,
+        simulation_parameters_file_name=simulation_parameters_file_name,
+    )
+    arc_output_verification = load_arc_output(
+        iteration_path=simulation_parameters_path,
+        arc_id=simulation_parameters.arc_parameters.arc_id,
+        simulation_parameters_file_name=simulation_parameters_file_name,
+    )
     assert sum(abs(arc_output.t - arc_output_verification.t)) < NUMERICAL_TOLERANCE
     assert sum(sum(abs(arc_output.y - arc_output_verification.y))) < NUMERICAL_TOLERANCE
 
@@ -339,52 +372,105 @@ def test_arc_output(
 
 
 def test_quadrature(
-    output_path: Path = TEST_OUTPUT_PATH,
-    station_file_name: str = "stations",
-    arc_id: str = TEST_ARC_PARAMETERS.arc_id,
-    simulation_parameters_file_name: str = "simulation_parameters",
-    parameters_to_invert: Optional[dict[str, list[str]]] = None,
+    stations_path: Path = TEST_OUTPUT_PATH,
+    station_file_name: str = DEFAULT_STATIONS_FILE_NAME,
+    simulation_parameters_path: Path = TEST_NO_ITERATIONS_PATH,
+    simulation_parameters_file_name: str = DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
+    parameters_initial_guess: Optional[dict[str, float]] = None,
 ) -> None:
     """
     Verifies if the measurements are correctly created in a forward simulation.
     """
 
-    if parameters_to_invert is None:
-
-        parameters_to_invert = {"dynamic": None, "station": None}
-
-    stations = get_stations(stations_path=output_path, station_file_name=station_file_name)
-    simulation_parameters = load_simulation_parameters(
-        output_path=output_path,
-        arc_id=arc_id,
-        name=simulation_parameters_file_name,
-    )
-    simulation_parameters.update_for_stations(stations=stations)
-    simulation_parameters.arc_parameters.is_initial = False
-    observation_partials: dict[str, ndarray]
-
-    arc_output, observation_partials, parameters_to_invert = propagate_partials_and_save(
-        stations=stations,
-        simulation_parameters=simulation_parameters,
-        parameters_to_invert=parameters_to_invert,
+    path = run_single_arc(
+        simulation_parameters=load_simulation_parameters(
+            path=simulation_parameters_path,
+            name=simulation_parameters_file_name,
+        ),
+        stations_path=stations_path,
+        station_file_name=station_file_name,
+        path=simulation_parameters_path,
+        parameters_initial_guess=parameters_initial_guess,
     )
 
     # Verifies the normal equations save correctly.
-    a_matrix = array(object=list(observation_partials.values())).T
-    b_second_member = concatenate(list(arc_output.residuals.values()))[:, None]
-    n_matrix = array(
-        object=matmul(a_matrix.T, a_matrix), dtype=float
-    )  # TODO: ponderate by uncertainties.
-    s_second_member = array(
-        object=matmul(a_matrix.T, b_second_member), dtype=float
-    )  # TODO: ponderate by uncertainties.
-    path = save_normal_equations(
-        n_matrix=n_matrix,
-        s_second_member=s_second_member,
-        simulation_parameters=simulation_parameters,
-    )
-    save_base_model(obj=parameters_to_invert, name="parameters", path=path)
-
-    assert path.joinpath("n_matrix.json").exists()
-    assert path.joinpath("s_second_member.json").exists()
+    assert path.joinpath("a_matrix.json").exists()
+    assert path.joinpath("b_second_member.json").exists()
     assert path.joinpath("parameters.json").exists()
+
+
+def test_inversion(
+    stations_path: Path = TEST_OUTPUT_PATH,
+    station_file_name: str = DEFAULT_STATIONS_FILE_NAME,
+    inversion_path: Path = TEST_INVERSION_PATH,
+    simulation_parameters_path: Path = TEST_NO_ITERATIONS_PATH,
+    simulation_parameters_file_name: str = DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
+) -> None:
+    """
+    Retrieves the J_2 over 1 arcs for 1 satellite.
+    """
+
+    simulation_parameters, _, _, _ = simulate_observations(
+        stations_path=stations_path,
+        save_path=inversion_path,
+        station_file_name=station_file_name,
+        simulation_parameters_path=simulation_parameters_path,
+        simulation_parameters_file_name=simulation_parameters_file_name,
+    )
+    solve_precise_orbit_determination(
+        simulation_parameters_per_arc=[simulation_parameters],
+        inversion_path=inversion_path,
+        parameters_values_initial_guess_per_arc=[{r"J_2": 0.009}],
+        station_file_name=station_file_name,
+    )
+
+
+def test_inversion_multiple_arcs(
+    stations_path: Path = TEST_OUTPUT_PATH,
+    station_file_name: str = DEFAULT_STATIONS_FILE_NAME,
+    inversion_path: Path = TEST_OUTPUT_PATH.joinpath("test_inversion_2_arcs"),
+    simulation_parameters_path: Path = TEST_NO_ITERATIONS_PATH,
+    simulation_parameters_file_name: str = DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
+) -> None:
+    """
+    Retrieves the J_2 over 2 arcs for 1 satellite.
+    """
+
+    simulation_parameters, _, _, y = simulate_observations(
+        stations_path=stations_path,
+        save_path=inversion_path,
+        station_file_name=station_file_name,
+        simulation_parameters_path=simulation_parameters_path,
+        simulation_parameters_file_name=simulation_parameters_file_name,
+    )
+    second_arc_simulation_parameters = deepcopy(x=simulation_parameters)
+
+    # Builds the initial conditions for second arc.
+    for parameter, value in zip(STATE_PARAMETERS.split(), y[-1] - y[0]):
+
+        second_arc_simulation_parameters.terminal_parameter_values[parameter] = value
+
+    second_arc_simulation_parameters_file_name = simulation_parameters_file_name + "_2"
+    second_arc_simulation_parameters.arc_parameters.arc_id += "_2"
+    second_arc_simulation_parameters.save(
+        path=simulation_parameters_path, name=second_arc_simulation_parameters_file_name
+    )
+    second_arc_simulation_parameters, _, _, _ = simulate_observations(
+        stations_path=stations_path,
+        save_path=inversion_path,
+        station_file_name=station_file_name,
+        simulation_parameters_path=simulation_parameters_path,
+        simulation_parameters_file_name=second_arc_simulation_parameters_file_name,
+    )
+    solve_precise_orbit_determination(
+        simulation_parameters_per_arc=[simulation_parameters, second_arc_simulation_parameters],
+        inversion_path=inversion_path,
+        parameters_values_initial_guess_per_arc=2 * [{r"J_2": 0.009}],
+        station_file_name=station_file_name,
+        parameters_to_cumulate=[r"J_2"],
+    )
+
+
+# TODO: Sub-function that simulates measurements for a given satellite for n_arcs.
+# TODO: Test function that cumulates the J_2 over 1 arcs for 2 satellite.
+# TODO: Test function that cumulates the J_2 over 2 arcs for 2 satellite.
