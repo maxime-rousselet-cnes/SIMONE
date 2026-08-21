@@ -4,7 +4,7 @@ Independent utility functions.
 
 from math import atan2
 
-from sympy import Expr, Identity, Matrix, MutableDenseMatrix, Piecewise, cos, sin, symbols
+from sympy import Expr, Identity, Matrix, MutableDenseMatrix, Piecewise, cos, sin, sqrt, symbols
 
 from .base_constants import degrees, radians
 
@@ -29,6 +29,29 @@ def speed(state_vector: MutableDenseMatrix) -> MutableDenseMatrix:
     return Matrix(state_vector[3:6])
 
 
+from sympy import atan2, cos, sin, sqrt
+
+
+def simplify_atan2_trig(expr: Expr):
+    """
+    Takes advantages of trigonometric simplifications.
+    """
+
+    if expr.args[0].func == atan2:
+
+        y, x = expr.args[0].args
+
+        if expr.func == cos:
+
+            return x / sqrt(x**2 + y**2)
+
+        if expr.func == sin:
+
+            return y / sqrt(x**2 + y**2)
+
+    return expr
+
+
 def rotation_matrix(
     angle: Expr, unit_vector: MutableDenseMatrix = Matrix([[0], [0], [1]])
 ) -> MutableDenseMatrix:
@@ -40,7 +63,6 @@ def rotation_matrix(
     outer_product_matrix = Matrix(
         [[term_1 * term_2 for term_2 in unit_vector.flat()] for term_1 in unit_vector.flat()]
     )
-
     cross_product_matrix = Matrix(
         [
             [0, -unit_vector[2], unit_vector[1]],
@@ -48,11 +70,12 @@ def rotation_matrix(
             [-unit_vector[1], unit_vector[0], 0],
         ]
     )
+    cos_angle: Expr = simplify_atan2_trig(expr=cos(angle))
 
     return (
-        cos(angle) * Identity(3)
-        + (1 - cos(angle)) * outer_product_matrix
-        + sin(angle) * cross_product_matrix
+        cos_angle * Matrix([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+        + (1 - cos_angle) * outer_product_matrix
+        + simplify_atan2_trig(expr=sin(angle)) * cross_product_matrix
     )
 
 
@@ -61,7 +84,7 @@ def norm(vector: MutableDenseMatrix) -> MutableDenseMatrix:
     Computes the Euclidean norm of a vector.
     """
 
-    return sum(component**2 for component in vector.flat()) ** 0.5
+    return sqrt(sum(component**2 for component in vector.flat()))
 
 
 def distance(vector_1: MutableDenseMatrix, vector_2: MutableDenseMatrix) -> Expr:

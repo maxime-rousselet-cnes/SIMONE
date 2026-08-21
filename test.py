@@ -106,14 +106,16 @@ def test_clear_test_folder(path: Path = TEST_OUTPUT_PATH) -> None:
 def test_generate_simulation_parameters(
     path: Path = TEST_NO_ITERATIONS_PATH,
     simulation_parameters_file_name: str = DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
+    arc_parameters: ArcParameters = TEST_ARC_PARAMETERS,
+    simulated_forces: dict[str, Optional[Parameters]] = TEST_SIMULATED_FORCES,
 ) -> None:
     """
     Generates simulation parameters and save in (.JSON) file to be loaded by other test functions.
     """
 
     SimulationParameters(
-        arc_parameters=TEST_ARC_PARAMETERS,
-        simulated_forces=TEST_SIMULATED_FORCES,
+        arc_parameters=arc_parameters,
+        simulated_forces=simulated_forces,
     ).save(
         path=path,
         name=simulation_parameters_file_name,
@@ -282,7 +284,7 @@ def test_arc_output(
     station_file_name: str = DEFAULT_STATIONS_FILE_NAME,
     simulation_parameters_path: Path = TEST_NO_ITERATIONS_PATH,
     simulation_parameters_file_name: str = DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
-    measurements_directory_name: Path = DEFAULT_MEASUREMENT_DIRECTORY_NAME,
+    measurements_directory_name: str = DEFAULT_MEASUREMENT_DIRECTORY_NAME,
 ) -> None:
     """
     Verifies if the measurements are correctly created in a forward simulation.
@@ -433,7 +435,7 @@ def test_inversion_multiple_arcs(
     simulation_parameters_file_name: str = DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
 ) -> None:
     """
-    Retrieves the J_2 over 2 arcs for 1 satellite.
+    Retrieves the J_2 over 2 different arcs for 1 satellite.
     """
 
     simulation_parameters, _, _, y = simulate_observations(
@@ -470,6 +472,10 @@ def test_inversion_multiple_arcs(
         parameters_to_cumulate=[r"J_2"],
     )
 
+
+if __name__ == "__main__":
+
+    test_inversion()
 
 # TODO: Sub-function that simulates measurements for a given satellite for n_arcs.
 # TODO: Test function that cumulates the J_2 over 1 arcs for 2 satellite.

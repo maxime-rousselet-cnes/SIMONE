@@ -45,7 +45,7 @@ DEFAULT_TERMINAL_PARAMETER_VALUES = {
     r"J_2": TEST_J2,
     r"a_{semi-major\ axis}": 7e6,
     r"e_{eccentricity}": 0.05,
-    r"i_{inclination}": 70.0,
+    r"i_{inclination}": 50.0,
     r"\Omega_{right\ ascension\ ascending\ node}": 45.0,
     r"\omega_{argument\ of\ periapsis}": 0.0,
     r"\nu_{true\ anomaly}": 0.0,

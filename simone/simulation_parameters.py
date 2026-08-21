@@ -15,6 +15,7 @@ from .base_constants import (
     DEFAULT_TERMINAL_PARAMETER_VALUES,
     TEST_NO_ITERATIONS_PATH,
 )
+from .empirical_forces import EmpiricalForceParameters, empirical_force
 from .gravitational_forces import central_body_attraction, j2_attraction
 from .parameters import ArcParameters, Parameters
 from .test_forces import (
@@ -29,12 +30,14 @@ ALL_FORCES = {
     "j2_attraction": j2_attraction,
     "parameterized_test_force": parameterized_test_force,
     "time_test_force": time_test_force,
+    "empirical_force": empirical_force,
 }
 ALL_FORCES_PARAMETERS = {
     "central_body_attraction": None,
     "j2_attraction": None,
     "parameterized_test_force": ParameterizedTestForceParameters,
     "time_test_force": TimeTestForceParameters,
+    "empirical_force": EmpiricalForceParameters,
 }
 
 
