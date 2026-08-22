@@ -6,14 +6,14 @@ from multiprocessing import Pool
 from pathlib import Path
 from typing import Optional
 
-from base_models import load_base_model
+from base_models import load_base_model, save_base_model
 from numpy import array, concatenate, diag, inf, matmul, mean, ndarray, zeros, zeros_like
 from numpy.linalg import cholesky, inv
 
 from .base_constants import (
+    DEFAULT_CONVERGENCE_THRESHOLD,
     DEFAULT_MAX_ITERATIONS,
     DEFAULT_STATIONS_FILE_NAME,
-    DFAULT_CONVERGENCE_THRESHOLD,
     TEST_INVERSION_NAME,
     TEST_NO_ITERATIONS_PATH,
     TEST_OUTPUT_PATH,
@@ -143,7 +143,7 @@ def load_normal_equations(
 def build_arc_parameter_indices(
     overall_index: int,
     arc_parameters_to_invert: dict[str, Optional[list[str]]],
-    parameters_to_cumulate_indices: dict[str, int],
+    parameters_to_accumulate_indices: dict[str, int],
     arc_parameter_indices: list[dict[str, dict[str, int]]],
     i_arc: int,
 ) -> tuple[int, list[dict[str, dict[str, int]]]]:
@@ -157,15 +157,15 @@ def build_arc_parameter_indices(
 
         for parameter in arc_parameters_to_invert[parameter_kind]:
 
-            if parameter in parameters_to_cumulate_indices:
+            if parameter in parameters_to_accumulate_indices:
 
-                if parameters_to_cumulate_indices[parameter] == -1:  # Not stored already.
+                if parameters_to_accumulate_indices[parameter] == -1:  # Not stored already.
 
-                    parameters_to_cumulate_indices[parameter] = overall_index
+                    parameters_to_accumulate_indices[parameter] = overall_index
                     overall_index += 1
 
                 arc_parameter_indices[i_arc][parameter_kind][parameter] = (
-                    parameters_to_cumulate_indices[parameter]
+                    parameters_to_accumulate_indices[parameter]
                 )
 
             else:
@@ -174,6 +174,7 @@ def build_arc_parameter_indices(
                 overall_index += 1
 
             arc_parameter_index += 1
+
     return overall_index, arc_parameter_indices
 
 
@@ -181,7 +182,7 @@ def gather_normal_equations(
     normal_equation_path_per_arc: list[Path],
     inversion_path: Path,
     station_file_name: str,
-    parameters_to_cumulate_indices: dict[str, int],
+    parameters_to_accumulate_indices: dict[str, int],
 ) -> tuple[int, list[ndarray], list[ndarray], list[ndarray], list[dict[str, dict[str, int]]]]:
     """
     Loads the normal equations of every arc and builds the corresponding indices needed for
@@ -211,7 +212,7 @@ def gather_normal_equations(
         overall_index, arc_parameter_indices = build_arc_parameter_indices(
             overall_index=overall_index,
             arc_parameters_to_invert=arc_parameters_to_invert,
-            parameters_to_cumulate_indices=parameters_to_cumulate_indices,
+            parameters_to_accumulate_indices=parameters_to_accumulate_indices,
             arc_parameter_indices=arc_parameter_indices,
             i_arc=i_arc,
         )
@@ -225,7 +226,7 @@ def gather_normal_equations(
     )
 
 
-def cumulate(
+def accumulate(
     overall_index: int,
     arc_parameter_indices: list[dict[str, dict[str, int]]],
     all_n_matrices: list[ndarray],
@@ -235,8 +236,8 @@ def cumulate(
     Cumulates common parameter between the arcs.
     """
 
-    n_cumulated_matrix = zeros(shape=(overall_index, overall_index))
-    s_cumulated_second_member = zeros(shape=(overall_index, 1))
+    n_accumulated_matrix = zeros(shape=(overall_index, overall_index))
+    s_accumulated_second_member = zeros(shape=(overall_index, 1))
 
     for i_arc, (n_matrix_arc, s_vector_arc) in enumerate(zip(all_n_matrices, all_s_second_members)):
 
@@ -248,13 +249,13 @@ def cumulate(
 
         for i_local, i_global in enumerate(local_to_global):
 
-            s_cumulated_second_member[i_global][0] += s_vector_arc[i_local][0]
+            s_accumulated_second_member[i_global][0] += s_vector_arc[i_local][0]
 
             for j_local, j_global in enumerate(local_to_global):
 
-                n_cumulated_matrix[i_global, j_global] += n_matrix_arc[i_local, j_local]
+                n_accumulated_matrix[i_global, j_global] += n_matrix_arc[i_local, j_local]
 
-    return n_cumulated_matrix, s_cumulated_second_member
+    return n_accumulated_matrix, s_accumulated_second_member
 
 
 def cumulate_and_solve_normal_equations(
@@ -262,15 +263,15 @@ def cumulate_and_solve_normal_equations(
     normal_equation_path_per_arc: list[Path],
     inversion_path: Path,
     station_file_name: str,
-    parameters_to_cumulate: Optional[list[str]] = None,
+    parameters_to_accumulate: Optional[list[str]] = None,
 ) -> tuple[ndarray, ndarray, list[dict[str, dict[str, int]]], bool, list[float]]:
     """
-    Uses the normal equations for every arc to cumulate and solve globally
+    Uses the normal equations for every arc to accumulate and solve globally
     """
 
-    if parameters_to_cumulate is None:
+    if parameters_to_accumulate is None:
 
-        parameters_to_cumulate = []
+        parameters_to_accumulate = []
 
     (
         overall_index,
@@ -282,23 +283,26 @@ def cumulate_and_solve_normal_equations(
         normal_equation_path_per_arc=normal_equation_path_per_arc,
         inversion_path=inversion_path,
         station_file_name=station_file_name,
-        parameters_to_cumulate_indices={parameter: -1 for parameter in parameters_to_cumulate},
+        parameters_to_accumulate_indices={parameter: -1 for parameter in parameters_to_accumulate},
     )
 
     mean_residual_history += [mean(abs(concatenate(b_second_member_per_arc)).flatten())]
 
-    if abs(mean_residual_history[-2] - mean_residual_history[-1]) < DFAULT_CONVERGENCE_THRESHOLD:
+    if (
+        abs(mean_residual_history[-2] - mean_residual_history[-1]) / mean_residual_history[-1]
+        < DEFAULT_CONVERGENCE_THRESHOLD
+    ):
 
         return array(object=()), array(object=()), [], True, mean_residual_history
 
-    n_cumulated_matrix, s_cumulated_second_member = cumulate(
+    n_accumulated_matrix, s_accumulated_second_member = accumulate(
         overall_index=overall_index,
         arc_parameter_indices=arc_parameter_indices,
         all_n_matrices=all_n_matrices,
         all_s_second_members=all_s_second_members,
     )
     delta_x_solution, n_matrix_inverse = solve_normal_equations(
-        n_matrix=n_cumulated_matrix, s_second_member=s_cumulated_second_member
+        n_matrix=n_accumulated_matrix, s_second_member=s_accumulated_second_member
     )
 
     return (
@@ -352,7 +356,7 @@ def solve_precise_orbit_determination(
     inversion_path: Path = TEST_OUTPUT_PATH.joinpath(TEST_INVERSION_NAME),
     parameters_values_initial_guess_per_arc: Optional[list[Optional[dict[str, float]]]] = None,
     station_file_name: str = DEFAULT_STATIONS_FILE_NAME,
-    parameters_to_cumulate: Optional[list[str]] = None,
+    parameters_to_accumulate: Optional[list[str]] = None,
 ) -> tuple[list[dict[str, float]], list[ndarray], list[dict[str, dict[str, int]]]]:
     """
     Performs a loop on:
@@ -404,7 +408,7 @@ def solve_precise_orbit_determination(
             normal_equation_path_per_arc=normal_equation_path_per_arc,
             inversion_path=inversion_path,
             station_file_name=station_file_name,
-            parameters_to_cumulate=parameters_to_cumulate,
+            parameters_to_accumulate=parameters_to_accumulate,
         )
 
         if breaker_flag:
@@ -419,6 +423,8 @@ def solve_precise_orbit_determination(
             )
         ]
         correlations_per_iterations += [n_matrix_inverse]
+
+    save_base_model(obj=mean_residual_history[1:], name="residual_hirstory", path=inversion_path)
 
     return (
         parameter_values_per_iteration_per_arc,

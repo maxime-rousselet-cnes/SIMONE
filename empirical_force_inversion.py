@@ -8,7 +8,6 @@ from test import (
     TEST_ARC_PARAMETERS,
     simulate_observations,
     test_clear_test_folder,
-    test_generate_simulation_parameters,
     test_generate_stations,
 )
 from time import time
@@ -21,10 +20,10 @@ from sympy import Symbol
 from simone import (
     DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
     DEFAULT_STATIONS_FILE_NAME,
-    TEST_INVERSION_NAME,
     TEST_NO_ITERATIONS_NAME,
     EmpiricalForceParameters,
     Parameters,
+    SimulationParameters,
     solve_precise_orbit_determination,
 )
 
@@ -48,24 +47,86 @@ TEST_EMPIRICAL_FORCE_OUTPUT_PATH = Path("empirical_force_tests")
 TEST_EMPIRICAL_FORCE_NO_ITERATIONS_PATH = TEST_EMPIRICAL_FORCE_OUTPUT_PATH.joinpath(
     TEST_NO_ITERATIONS_NAME
 )
-TEST_EMPIRICAL_FORCE_INVERSION_PATH = TEST_EMPIRICAL_FORCE_OUTPUT_PATH.joinpath(TEST_INVERSION_NAME)
-
+TEST_EMPIRICAL_FORCE_INVERSION_PATH = TEST_EMPIRICAL_FORCE_OUTPUT_PATH.joinpath("Inverting both")
+TRUE_J_2_MODEL = 1e-3
+WRONG_J_2_MODEL = TRUE_J_2_MODEL - TRUE_J_2_MODEL / 1e5
 if __name__ == "__main__":
     """
     TODO.
     """
+
+    # Initialization.
     t_0 = time()
     TEST_ARC_PARAMETERS.arc_length = 86400.0
     test_clear_test_folder(path=TEST_EMPIRICAL_FORCE_OUTPUT_PATH)
-    test_generate_simulation_parameters(
-        path=TEST_EMPIRICAL_FORCE_NO_ITERATIONS_PATH,
+    simulation_parameters = SimulationParameters(
         arc_parameters=TEST_ARC_PARAMETERS,
         simulated_forces=TEST_EMPIRICAL_SIMULATED_FORCES,
+        terminal_parameter_values={r"J_2": TRUE_J_2_MODEL},
+    )
+    simulation_parameters.save(
+        path=TEST_EMPIRICAL_FORCE_NO_ITERATIONS_PATH, name=DEFAULT_SIMULATION_PARAMETERS_FILE_NAME
     )
     test_generate_stations(
         output_path=TEST_EMPIRICAL_FORCE_OUTPUT_PATH,
         simulation_parameters_path=TEST_EMPIRICAL_FORCE_NO_ITERATIONS_PATH,
     )
+
+    # Fixed J_2 with error.
+    print("Fixed J_2")
+    simulation_parameters, _, _, _ = simulate_observations(
+        stations_path=TEST_EMPIRICAL_FORCE_OUTPUT_PATH,
+        save_path=TEST_EMPIRICAL_FORCE_OUTPUT_PATH.joinpath("Fixed J_2"),
+        station_file_name=DEFAULT_STATIONS_FILE_NAME,
+        simulation_parameters_path=TEST_EMPIRICAL_FORCE_NO_ITERATIONS_PATH,
+        simulation_parameters_file_name=DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
+    )
+    simulation_parameters.terminal_parameter_values[r"J_2"] = WRONG_J_2_MODEL
+    solve_precise_orbit_determination(
+        simulation_parameters_per_arc=[simulation_parameters],
+        inversion_path=TEST_EMPIRICAL_FORCE_OUTPUT_PATH.joinpath("Fixed J_2"),
+        parameters_values_initial_guess_per_arc=[None],
+        station_file_name=DEFAULT_STATIONS_FILE_NAME,
+    )
+    print()
+
+    # Inverted J_2.
+    print("Inverted J_2")
+    simulation_parameters, _, _, _ = simulate_observations(
+        stations_path=TEST_EMPIRICAL_FORCE_OUTPUT_PATH,
+        save_path=TEST_EMPIRICAL_FORCE_OUTPUT_PATH.joinpath("Inverted J_2"),
+        station_file_name=DEFAULT_STATIONS_FILE_NAME,
+        simulation_parameters_path=TEST_EMPIRICAL_FORCE_NO_ITERATIONS_PATH,
+        simulation_parameters_file_name=DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
+    )
+    solve_precise_orbit_determination(
+        simulation_parameters_per_arc=[simulation_parameters],
+        inversion_path=TEST_EMPIRICAL_FORCE_OUTPUT_PATH.joinpath("Inverted J_2"),
+        parameters_values_initial_guess_per_arc=[{r"J_2": WRONG_J_2_MODEL}],
+        station_file_name=DEFAULT_STATIONS_FILE_NAME,
+    )
+    print()
+
+    # Inverted empirical acceleration.
+    print("Inverted empirical acceleration")
+    simulation_parameters, _, _, _ = simulate_observations(
+        stations_path=TEST_EMPIRICAL_FORCE_OUTPUT_PATH,
+        save_path=TEST_EMPIRICAL_FORCE_OUTPUT_PATH.joinpath("Inverted empirical acceleration"),
+        station_file_name=DEFAULT_STATIONS_FILE_NAME,
+        simulation_parameters_path=TEST_EMPIRICAL_FORCE_NO_ITERATIONS_PATH,
+        simulation_parameters_file_name=DEFAULT_SIMULATION_PARAMETERS_FILE_NAME,
+    )
+    simulation_parameters.terminal_parameter_values[r"J_2"] = WRONG_J_2_MODEL
+    solve_precise_orbit_determination(
+        simulation_parameters_per_arc=[simulation_parameters],
+        inversion_path=TEST_EMPIRICAL_FORCE_OUTPUT_PATH.joinpath("Inverted empirical acceleration"),
+        parameters_values_initial_guess_per_arc=[{r"b_n": 0.0, r"c_n": 0.0, r"s_n": 0.0}],
+        station_file_name=DEFAULT_STATIONS_FILE_NAME,
+    )
+    print()
+
+    # Inverting both and showing correlation.
+    print("Inverting both")
     simulation_parameters, _, _, _ = simulate_observations(
         stations_path=TEST_EMPIRICAL_FORCE_OUTPUT_PATH,
         save_path=TEST_EMPIRICAL_FORCE_INVERSION_PATH,
@@ -78,7 +139,7 @@ if __name__ == "__main__":
             simulation_parameters_per_arc=[simulation_parameters],
             inversion_path=TEST_EMPIRICAL_FORCE_INVERSION_PATH,
             parameters_values_initial_guess_per_arc=[
-                {r"J_2": 0.009, r"b_n": 0.0, r"c_n": 0.0, r"s_n": 0.0}
+                {r"J_2": WRONG_J_2_MODEL, r"b_n": 0.0, r"c_n": 0.0, r"s_n": 0.0}
             ],
             station_file_name=DEFAULT_STATIONS_FILE_NAME,
         )
@@ -89,12 +150,12 @@ if __name__ == "__main__":
             "correlations_per_iterations": correlations_per_iterations,
             "arc_parameter_indices": arc_parameter_indices,
         },
-        name="result",
+        name="free_result",
         path=TEST_EMPIRICAL_FORCE_INVERSION_PATH,
     )
 
     # Figure generation.
-    result = load_base_model(name="result", path=TEST_EMPIRICAL_FORCE_INVERSION_PATH)
+    result = load_base_model(name="free_result", path=TEST_EMPIRICAL_FORCE_INVERSION_PATH)
     correlations = result["correlations_per_iterations"][-1]
     parameter_indices: dict = result["arc_parameter_indices"][0]["dynamic"]
     fig = figure(figsize=(8, 6))

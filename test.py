@@ -44,10 +44,10 @@ from simone import (
     solve_precise_orbit_determination,
 )
 
-TEST_STATION_QUANTITY = 100
+TEST_STATION_QUANTITY = 30
 TEST_SIGMA_SAFETY_FACTOR = 10
 TEST_ARC_LENGTH = 5000.0  # 10000.0
-TEST_TIME_STEP = 30.0
+TEST_TIME_STEP = 60.0
 TEST_TIME_STEP_FOR_TEST_TIME_PARAMETER = 1000.0
 TEST_ARC_START_DATETIME = datetime(
     year=2000, month=1, day=1, hour=0, minute=0, second=0, microsecond=0
@@ -469,7 +469,7 @@ def test_inversion_multiple_arcs(
         inversion_path=inversion_path,
         parameters_values_initial_guess_per_arc=2 * [{r"J_2": 0.009}],
         station_file_name=station_file_name,
-        parameters_to_cumulate=[r"J_2"],
+        parameters_to_accumulate=[r"J_2"],
     )
 
 

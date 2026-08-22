@@ -9,8 +9,8 @@ from numpy import flipud, ndarray, pi, zeros_like
 from sympy import Expr
 
 STATE_PARAMETERS = r"x_0 y_0 z_0 \dot{x}_0 \dot{y}_0 \dot{z}_0"
-DEFAULT_MAX_ITERATIONS = 4
-DFAULT_CONVERGENCE_THRESHOLD = 1e-2
+DEFAULT_MAX_ITERATIONS = 15
+DEFAULT_CONVERGENCE_THRESHOLD = 1e-2
 TEST_OUTPUT_PATH = Path("tests")
 TEST_INVERSION_NAME = "test_inversion"
 TEST_NO_ITERATIONS_NAME = "test_no_iterations"
